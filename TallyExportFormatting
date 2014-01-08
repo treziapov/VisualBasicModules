@@ -1,3 +1,7 @@
+Function AedOrUsdPrompt() As Variant
+    AedOrUsdPrompt = MsgBox("")
+End Function
+
 Sub FormatTallyExport()
     ' @ Macro that will be linked to the Format Button
     Dim WbNameUp As String
@@ -6,27 +10,17 @@ Sub FormatTallyExport()
     ShNameUp = UCase(ActiveSheet.Name)
     
     '   Call formatting function according to FIle and Sheet Names
-    If WbNameUp = "INVENTORY VOUCHER.XLS" _
-        Or WbNameUp = "TALLY.XLS" Then
-            If ShNameUp = "PHYSICAL STOCK VOUCHER" Then
-                Call PhysicalStockFormatting
-            ElseIf ShNameUp = "ROBININVOICE" Then
-                Call InvoiceFormatting
-            ElseIf ShNameUp = "STOCK JOURNAL VOUCHER" Then
-                Call TransferFormatting
-            Else
-                MsgBox "This WORKSHEET Name is not supported!"
-            End If
-    ElseIf WbNameUp = "STKSUM.XLS" Then
-            If ShNameUp = "STOCK SUMMARY" Then
-                Call PriceListFormatting
-            Else
-                MsgBox "This WORKSHEET Name is not supported!"
-            End If
-    Else
-            MsgBox "This FILE Name is not supported!" & vbNewLine & vbNewLine & _
-                "Check you have the right file or change FILE Name in Tally Export Settings."
-    End If
+        If ShNameUp = "PHYSICAL STOCK VOUCHER" Then
+            Call PhysicalStockFormatting
+        ElseIf ShNameUp = "ROBININVOICE" Then
+            Call InvoiceFormatting
+        ElseIf ShNameUp = "STOCK JOURNAL VOUCHER" Then
+            Call TransferFormatting
+        ElseIf ShNameUp = "STOCK SUMMARY" Then
+            Call PriceListFormatting
+        Else
+            MsgBox "This WORKSHEET Name is not supported!"
+        End If
     
     '   Organize all active windows vertically
     Windows.Arrange ArrangeStyle:=xlVertical
@@ -225,7 +219,14 @@ End Sub
 Sub InvoiceFormatting()
     '   NOTE: Need to try on Tally formatted exports
     
-    Dim Names(0 To 1000) As String, Quantities(0 To 1000) As Long, Prices(0 To 1000) As Double
+    'Prompt User for Currency
+    Dim InAED As Boolean
+    With CurrencyForm
+        .Show
+        InAED = .AED.value
+    End With
+    
+    Dim Names(0 To 10000) As String, Quantities(0 To 10000) As Long, Prices(0 To 10000) As Double
     Dim InvoiceDate As Date, InvoiceNumber As String, Customer As String
     Dim PhoneNumber As String
     Dim ExportTotalQnt As Integer, ExportTotalAmount As Double
@@ -259,7 +260,7 @@ Sub InvoiceFormatting()
         Set CurrentCell = ActiveSheet.Cells(StartRow, 2)
     Loop While IsEmpty(CurrentCell)
     
-    For Count = StartRow To 5000
+    For Count = StartRow To 10000
         Set CurrentCell = ActiveSheet.Cells(Count, 2)
         If IsEmpty(CurrentCell) Or CurrentCell.value = "" Then
             ArraySize = Count - StartRow
@@ -267,11 +268,15 @@ Sub InvoiceFormatting()
         End If
         Names(Count - StartRow) = CurrentCell.value
         Quantities(Count - StartRow) = ActiveSheet.Cells(Count, 3).value
-        Prices(Count - StartRow) = ActiveSheet.Cells(Count, 4).value
+        If InAED = True Then
+            Prices(Count - StartRow) = ActiveSheet.Cells(Count, 4).value
+        Else
+            Prices(Count - StartRow) = ActiveSheet.Cells(Count, 4).value / 3.667
+        End If
     Next Count
 
     ExportTotalQnt = Range("B" & (Count + 2)).value
-    ExportTotalAmount = Range("D" & (Count + 2)).value
+    ExportTotalAmountAED = Range("D" & (Count + 2)).value
 
     '   Open Robin Invoice Template
     '   Change this to machine's location of the template
@@ -291,13 +296,15 @@ Sub InvoiceFormatting()
         MyTotalAmount = MyTotalAmount + Prices(Count) * Quantities(Count)
         MyTotalQnt = MyTotalQnt + Quantities(Count)
     Next Count
-    '   Insert Standalone Data
+    
+    'Insert Standalone Data
     ActiveSheet.Range("C11").value = InvoiceNumber
     ActiveSheet.Range("C12").value = Customer
     ActiveSheet.Range("F11").value = Format(InvoiceDate, "dd.mm.yy")
     ActiveSheet.Range("F12").value = PhoneNumber
     ActiveSheet.Range("C11:C12", "F11:F12").Font.Color = vbBlack
-    '   Insert and Check Totals
+    
+    'Insert and Check Totals
     With ActiveSheet.Range("B" & (Count + 19) & ":C" & (Count + 19))
         .value = "Total"
         .HorizontalAlignment = xlCenter
@@ -305,24 +312,35 @@ Sub InvoiceFormatting()
     End With
     With ActiveSheet.Cells(Count + 19, 4)
         If MyTotalQnt <> ExportTotalQnt Then
-            MsgBox "Error"
-            Exit Sub
+            MsgBox "Error in total quantity when formatting"
         End If
         .value = MyTotalQnt
         .Font.Bold = True
     End With
     With ActiveSheet.Cells(Count + 19, 6)
-        If MyTotalAmount <> ExportTotalAmount Then
-            MsgBox "Error"
-            Exit Sub
+        If InAED = True Then
+            .value = ExportTotalAmountAED
+        Else
+            .value = ExportTotalAmountAED / 3.667
         End If
-        .value = MyTotalAmount
         .Font.Bold = True
     End With
     With ActiveSheet.Cells(Count + 19, 7)
-        .value = "AED"
+        If InAED = True Then
+            .value = "AED"
+        Else
+            .value = "USD"
+        End If
         .Font.Bold = True
     End With
+    
+    'Change to Dollars if chosen
+    If InAED = False Then
+        With ActiveSheet
+            .Range("E18").value = "USD"
+            .Range("F18").value = "USD"
+        End With
+    End If
     
     Range("B19:C" & (Count + 18)).Select
     With Selection
@@ -694,3 +712,7 @@ Sub TransferFormatting()
     GeneralPrintSetup ("A1:F" & CurrRange.Row + 5)
     
 End Sub
+
+
+
+
