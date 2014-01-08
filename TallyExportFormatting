@@ -1,0 +1,696 @@
+Sub FormatTallyExport()
+    ' @ Macro that will be linked to the Format Button
+    Dim WbNameUp As String
+    WbNameUp = UCase(ActiveWorkbook.Name)
+    Dim ShNameUp As String
+    ShNameUp = UCase(ActiveSheet.Name)
+    
+    '   Call formatting function according to FIle and Sheet Names
+    If WbNameUp = "INVENTORY VOUCHER.XLS" _
+        Or WbNameUp = "TALLY.XLS" Then
+            If ShNameUp = "PHYSICAL STOCK VOUCHER" Then
+                Call PhysicalStockFormatting
+            ElseIf ShNameUp = "ROBININVOICE" Then
+                Call InvoiceFormatting
+            ElseIf ShNameUp = "STOCK JOURNAL VOUCHER" Then
+                Call TransferFormatting
+            Else
+                MsgBox "This WORKSHEET Name is not supported!"
+            End If
+    ElseIf WbNameUp = "STKSUM.XLS" Then
+            If ShNameUp = "STOCK SUMMARY" Then
+                Call PriceListFormatting
+            Else
+                MsgBox "This WORKSHEET Name is not supported!"
+            End If
+    Else
+            MsgBox "This FILE Name is not supported!" & vbNewLine & vbNewLine & _
+                "Check you have the right file or change FILE Name in Tally Export Settings."
+    End If
+    
+    '   Organize all active windows vertically
+    Windows.Arrange ArrangeStyle:=xlVertical
+    
+End Sub
+                                     
+Sub GeneralPrintSetup(ByRef Area As String)
+     ' @ Set general Print Settings
+    Application.PrintCommunication = False
+    
+    With ActiveSheet.PageSetup
+        .PrintArea = Area
+        .LeftMargin = Application.InchesToPoints(0.25)
+        .RightMargin = Application.InchesToPoints(0.25)
+        .TopMargin = Application.InchesToPoints(0.75)
+        .BottomMargin = Application.InchesToPoints(0.75)
+        .HeaderMargin = Application.InchesToPoints(0.3)
+        .FooterMargin = Application.InchesToPoints(0.3)
+        .PrintHeadings = False
+        .PrintGridlines = False
+        .PrintComments = xlPrintNoComments
+        .CenterHorizontally = True
+        .CenterVertically = False
+        .Orientation = xlPortrait
+        .Draft = False
+        .PaperSize = xlPaperA4
+        .FirstPageNumber = xlAutomatic
+        .Order = xlDownThenOver
+        .BlackAndWhite = False
+        .Zoom = False
+        .FitToPagesWide = 1
+        .FitToPagesTall = 0
+        .PrintErrors = xlPrintErrorsDisplayed
+        .OddAndEvenPagesHeaderFooter = False
+        .DifferentFirstPageHeaderFooter = False
+        .ScaleWithDocHeaderFooter = True
+        .AlignMarginsHeaderFooter = True
+        .CenterHeader = "Page &p of &n"
+    End With
+
+    Application.PrintCommunication = True
+    
+End Sub
+
+Sub MakeThinBorders(ByVal Area As String)
+    ' @ Wrap Area argument in THIN Borders
+    With ActiveSheet.Range(Area)
+        .Borders.LineStyle = xlDot
+        .Borders.Weight = xlHairline
+    End With
+    
+End Sub
+
+Sub PhysicalStockFormatting()
+    '  NOTE: Not guaranteed to work with FORMATTED Tally Export
+    '  TODO: Test on Formatted Export
+    
+    ' Find Column Numbers for Item Name, Quantity
+    Dim FindRange As Range
+    Dim ItemColumn As Long, QuantityColumn As Long
+    
+    Set FindRange = Range("A1:M10")
+    ItemColumn = FindRange.Find(What:="Name of Item", LookIn:=xlValues, _
+                            SearchOrder:=xlByColumns, MatchCase:=True).Column
+    QuantityColumn = FindRange.Find(What:="Quantity", LookIn:=xlValues, _
+                                  SearchOrder:=xlByColumns, MatchCase:=True).Column
+    ' Find starting cell
+    Dim CurrentCell As Range, StartingRow As Long
+    StartingRow = 1
+    Do
+        Set CurrentCell = ActiveSheet.Cells(StartingRow, ItemColumn)
+        StartingRow = StartingRow + 1
+    Loop While CurrentCell.value <> "Godown" And CurrentCell.value <> "Location"
+    
+    ' Loop through Names and Locations storing data in DYNAMIC ARRAYS
+    Dim ItemNames(0 To 1000) As String, ShopQuantity(0 To 1000) As Long, StoreQuantity(0 To 1000) As Long
+    Dim ArraySize As Long, Counter As Long, Add As Integer, Loc As Integer
+    ArraySize = 10000       ' Unfortunately Hard Coded for now
+    For Counter = 0 To ArraySize
+            Set CurrentCell = ActiveSheet.Cells(Counter + StartingRow, ItemColumn)
+            ' If Value = "Checked by" Then Table ends
+            If CurrentCell.value = "Checked by" Then
+                ArraySize = Counter - 1
+                Exit For
+            End If
+            ' Catch empty string error
+            If IsEmpty(CurrentCell.value) Then
+                MsgBox "Empty Cell Error!"
+                Exit Sub
+            End If
+            ' If not Shop or Store then it must be a Product, so add it to the array
+            If CurrentCell.value <> "Shop" And CurrentCell.value <> "Store" Then
+                ItemNames(Counter) = CurrentCell.value
+            End If
+            ' Loop to check next two rows for Store or Shop quantities
+            Add = 0
+            For Loc = 1 To 2
+                Set CurrentCell = ActiveSheet.Cells(Counter + StartingRow + Loc, ItemColumn)
+                If CurrentCell.value = "Shop" Then
+                    ShopQuantity(Counter) = ActiveSheet.Cells(Counter + StartingRow + Loc, QuantityColumn)
+                    Add = Add + 1
+                End If
+                If CurrentCell.value = "Store" Then
+                    StoreQuantity(Counter) = ActiveSheet.Cells(Counter + StartingRow + Loc, QuantityColumn)
+                    Add = Add + 1
+                End If
+            Next Loc
+            ' Update RowCurr factoring for Shop or Store rows with error check
+            If Add = 0 Then
+                MsgBox "Error! No Shop or Store under Item."
+                Exit Sub
+            End If
+            StartingRow = StartingRow + Add
+    Next Counter
+    
+    ' Error Checking
+    If CurrentCell.value <> "Checked by" Then
+        MsgBox "Error Ocurred!" _
+        & vbNewLine & vbNewLine & "Check your current sheet or the Tally export file."
+        Exit Sub
+    End If
+    
+    '   Add a New Workbook
+    Workbooks.Add
+    ActiveSheet.Cells(1, 1).value = "Stock Location Voucher"
+    ActiveSheet.Cells(2, 1).value = "Name"
+    ActiveSheet.Cells(2, 2).value = "Shop"
+    ActiveSheet.Cells(2, 4).value = "Store"
+    ActiveSheet.Columns("A").ColumnWidth = 50
+    
+    With Range("A1:E2")
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+    End With
+    Range("A1:C1").Merge
+    Range("B:B,D:D").HorizontalAlignment = xlCenter
+        With Range("D1:D1")
+        .value = "Date:"
+    End With
+    Range("E1:E1").value = Date
+    
+    '   Extract Data from the Arrays to the new Worksheet
+    Dim Qnt As Long, ShopTotal As Long, StoreTotal As Long
+    
+    ShopTotal = 0
+    StoreTotal = 0
+    
+    For Counter = 0 To ArraySize
+            ActiveSheet.Cells(Counter + 3, 1).value = ItemNames(Counter)
+            Qnt = ShopQuantity(Counter)
+            ShopTotal = ShopTotal + Qnt
+            If Qnt = 0 Then
+                ActiveSheet.Cells(Counter + 3, 2).value = "-"
+            Else
+                ActiveSheet.Cells(Counter + 3, 2).value = Qnt
+            End If
+            Qnt = StoreQuantity(Counter)
+            StoreTotal = StoreTotal + Qnt
+            If Qnt = 0 Then
+                ActiveSheet.Cells(Counter + 3, 4).value = "-"
+            Else
+                ActiveSheet.Cells(Counter + 3, 4).value = Qnt
+            End If
+    Next Counter
+    
+    '   Enter Total Information and Other Visual Editing
+    ActiveSheet.Cells(Counter + 3, 1).value = "Total"
+    ActiveSheet.Cells(Counter + 3, 2).value = ShopTotal
+    ActiveSheet.Cells(Counter + 3, 4).value = StoreTotal
+    ActiveSheet.Cells(Counter + 3, 5).value = ShopTotal + StoreTotal
+    Rows(Counter + 3).Font.Bold = True
+    
+    With Range("A1:E" & (Counter + 3))
+        With .Borders
+            .LineStyle = xlContinious
+            .Weight = xlHairline
+        End With
+        With .Font
+            .Name = "Arial"
+            .Size = 10
+        End With
+    End With
+    
+    ActiveSheet.Rows.RowHeight = 15
+    ActiveSheet.Range("A" & (Counter + 3) & ":A" & (Counter + 5)).HorizontalAlignment = xlCenter
+    ActiveSheet.Cells(Counter + 5, 1).value = "Checked By:"
+    
+    With Range("B" & (Counter + 5) & ":E" & (Counter + 5)).Borders(xlEdgeBottom)
+        .LineStyle = xlContinious
+        .Weight = xlThin
+    End With
+    GeneralPrintSetup ("A1:E" & (Counter + 5))
+    
+End Sub
+
+Sub InvoiceFormatting()
+    '   NOTE: Need to try on Tally formatted exports
+    
+    Dim Names(0 To 1000) As String, Quantities(0 To 1000) As Long, Prices(0 To 1000) As Double
+    Dim InvoiceDate As Date, InvoiceNumber As String, Customer As String
+    Dim PhoneNumber As String
+    Dim ExportTotalQnt As Integer, ExportTotalAmount As Double
+    
+    '   Store information from Export safely (Note InvoiceNumber is a String)
+    Dim CurrentCell As Range
+    
+    Set CurrentCell = Range("C3")
+    If Not IsEmpty(CurrentCell.value) Then
+        InvoiceDate = CurrentCell.value
+    End If
+    Set CurrentCell = Range("C5")
+    If Not IsEmpty(CurrentCell.value) Then
+        InvoiceNumber = CurrentCell.value
+    End If
+    Set CurrentCell = Range("A5")
+    If Not IsEmpty(CurrentCell.value) Then
+        Customer = CurrentCell.value
+    End If
+    Set CurrentCell = Range("A6")
+    If Not IsEmpty(CurrentCell.value) Then
+        PhoneNumber = CurrentCell.value
+    End If
+    
+    '   Find the first non empty cell in column B to start Array creation
+    Dim StartRow As Long, Count As Long, ArraySize As Long
+    
+    StartRow = 0
+    Do
+        StartRow = StartRow + 1 ' (StartRow is ahead by 1)
+        Set CurrentCell = ActiveSheet.Cells(StartRow, 2)
+    Loop While IsEmpty(CurrentCell)
+    
+    For Count = StartRow To 5000
+        Set CurrentCell = ActiveSheet.Cells(Count, 2)
+        If IsEmpty(CurrentCell) Or CurrentCell.value = "" Then
+            ArraySize = Count - StartRow
+            Exit For
+        End If
+        Names(Count - StartRow) = CurrentCell.value
+        Quantities(Count - StartRow) = ActiveSheet.Cells(Count, 3).value
+        Prices(Count - StartRow) = ActiveSheet.Cells(Count, 4).value
+    Next Count
+
+    ExportTotalQnt = Range("B" & (Count + 2)).value
+    ExportTotalAmount = Range("D" & (Count + 2)).value
+
+    '   Open Robin Invoice Template
+    '   Change this to machine's location of the template
+    Workbooks.Add Template:="\\Robingt-hp\perfume\Excel Templates (Don't change)\Robin Invoice Template.xltx"
+    Dim MyTotalAmount As Double, MyTotalQty As Long
+    
+    MyTotalAmount = 0
+    MyTotalQnt = 0
+    
+    '   Insert Array Data
+    For Count = 0 To ArraySize - 1
+        ActiveSheet.Cells(Count + 19, 1).value = Count + 1
+        ActiveSheet.Cells(Count + 19, 2).value = Names(Count)
+        ActiveSheet.Cells(Count + 19, 4).value = Quantities(Count)
+        ActiveSheet.Cells(Count + 19, 5).value = Prices(Count)
+        ActiveSheet.Cells(Count + 19, 6).value = Prices(Count) * Quantities(Count)
+        MyTotalAmount = MyTotalAmount + Prices(Count) * Quantities(Count)
+        MyTotalQnt = MyTotalQnt + Quantities(Count)
+    Next Count
+    '   Insert Standalone Data
+    ActiveSheet.Range("C11").value = InvoiceNumber
+    ActiveSheet.Range("C12").value = Customer
+    ActiveSheet.Range("F11").value = Format(InvoiceDate, "dd.mm.yy")
+    ActiveSheet.Range("F12").value = PhoneNumber
+    ActiveSheet.Range("C11:C12", "F11:F12").Font.Color = vbBlack
+    '   Insert and Check Totals
+    With ActiveSheet.Range("B" & (Count + 19) & ":C" & (Count + 19))
+        .value = "Total"
+        .HorizontalAlignment = xlCenter
+        .Font.Bold = True
+    End With
+    With ActiveSheet.Cells(Count + 19, 4)
+        If MyTotalQnt <> ExportTotalQnt Then
+            MsgBox "Error"
+            Exit Sub
+        End If
+        .value = MyTotalQnt
+        .Font.Bold = True
+    End With
+    With ActiveSheet.Cells(Count + 19, 6)
+        If MyTotalAmount <> ExportTotalAmount Then
+            MsgBox "Error"
+            Exit Sub
+        End If
+        .value = MyTotalAmount
+        .Font.Bold = True
+    End With
+    With ActiveSheet.Cells(Count + 19, 7)
+        .value = "AED"
+        .Font.Bold = True
+    End With
+    
+    Range("B19:C" & (Count + 18)).Select
+    With Selection
+        .HorizontalAlignment = xlLeft
+        .WrapText = False
+        .MergeCells = False
+    End With
+    
+    ActiveWorkbook.ActiveSheet.Sort.SortFields.Clear
+    ActiveWorkbook.ActiveSheet.Sort.SortFields.Add Key:=Range("B19"), _
+        SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:=xlSortNormal
+    With ActiveWorkbook.ActiveSheet.Sort
+        .SetRange Range("B19:G" & (Count + 18))
+        .Header = xlNo
+        .MatchCase = False
+        .Orientation = xlTopToBottom
+        .SortMethod = xlPinYin
+        .Apply
+    End With
+    
+    MakeThinBorders ("A19:G" & (Count + 19))
+    GeneralPrintSetup ("A1:G" & (Count + 19))
+
+End Sub
+
+Sub PriceListFormatting()
+
+    Dim Size As Integer, Count As Integer
+    Dim CurrItem As Range
+
+    '   Open Robin Price List Template
+    Workbooks.Add Template:="\\Robingt-hp\perfume\Excel Templates (Don't change)\Robin Price List Template.xltx"
+    Dim WBName As String
+    WBName = ActiveWorkbook.Name
+    Workbooks("StkSum.xls").Activate
+    
+    '   Copy the necessary columns
+    For Count = 0 To 5000
+        Set CurrItem = ActiveSheet.Cells(7 + Count, 1)
+        If CurrItem.value = "Grand Total" Then
+            Size = Count
+            Exit For
+        End If
+    Next Count
+    
+    If Count >= 5000 Then
+        MsgBox "Error. Didn't find Grand Total"
+        Exit Sub
+    End If
+    
+    '   Find the AED and USD Price Columns
+    Dim PriceAED As Integer
+    Dim Found As Range
+    Set Found = ActiveSheet.Range("A1:O5").Find(What:="Std. Price", LookIn:=xlValues, _
+                       SearchOrder:=xlByRows, MatchCase:=True)
+    If Found Is Nothing Then
+        MsgBox "Error. Coudn't find Price Column in Dirhams"
+        Exit Sub
+    End If
+    PriceAED = Found.Column + 1
+    If ActiveSheet.Cells(4, PriceAED - 1).value <> "(in Dirhams  )" Then
+        ActiveSheet.Cells(3, PriceAED - 1).value = ""
+        PriceAED = ActiveSheet.Range("A1:O5").Find(What:="Std. Price", LookIn:=xlValues, _
+                       SearchOrder:=xlByRows, MatchCase:=True).Column + 1
+    End If
+     If Found Is Nothing Then
+        MsgBox "Error. Coudn't find Price Column in Dirhams"
+        Exit Sub
+    End If
+    
+    'Get Date
+    Dim FileDate As String, StringDate As String, Length As Integer
+    FileDate = ActiveSheet.Cells(2, PriceAED - 1).value
+    StringDate = Mid(FileDate, 5)
+    FileDate = Format(StringDate, "dd-mm-yyyy")
+    
+    '   Copy Name and AED Price Columns to Template
+    With ActiveSheet.Range("A7:B" & (Size + 7 - 1))
+        .VerticalAlignment = xlBottom
+        .Font.Italic = False
+        .Font.Size = 10
+        .HorizontalAlignment = xlLeft
+    End With
+    ActiveSheet.Range("A7:A" & (Size + 7 - 1)).Copy Destination:=Workbooks(WBName).Worksheets("ROBIN PRICE LIST").Range("A22")
+    With ActiveSheet.Range(Cells(7, PriceAED), Cells(Size + 7 - 1, PriceAED))
+        .Font.Italic = False
+        .Font.Size = 10
+        .VerticalAlignment = xlBottom
+        .Copy Destination:=Workbooks(WBName).Worksheets("ROBIN PRICE LIST").Range("B22")
+    End With
+    '   Bolden and Add USD Price to Template Workbook
+    Workbooks(WBName).Activate
+    For Count = 22 To (Size + 22 - 1)
+        Set CurrItem = ActiveSheet.Cells(Count, 1)
+        With CurrItem
+            If IsEmpty(ActiveSheet.Cells(Count, 2)) Then
+                .Font.Bold = True
+                .Font.Italic = True
+                .HorizontalAlignment = xlCenter
+            Else
+                ActiveSheet.Cells(Count, 3) = ActiveSheet.Cells(Count, 2) / 3.667
+            End If
+        End With
+    Next Count
+    
+    ActiveSheet.Range("A20").value = "Date: " & FileDate
+    
+    GeneralPrintSetup ("A1:E" & (Size + 22 - 1))
+    MakeThinBorders ("A22:E" & Size + 22 - 1)
+    
+    ActiveSheet.Range("A20").Select
+    If FileDate = Format(Date, "dd-mm-yyyy") Then
+        MsgBox "The Price List Date is today: " & FileDate & vbNewLine & vbNewLine _
+        & "Make sure it is correct!"
+    Else
+        MsgBox "The date you entered is NOT TODAY'S DATE" & vbNewLine & vbNewLine _
+        & "Is this correct?"
+    End If
+    
+End Sub
+
+
+' Used for transferring items between Godowns
+Sub TransferFormatting()
+
+    Dim ItemColumn As Integer
+    Dim QuantityColumn As Integer
+    Dim PriceColumn As Integer
+    Dim SourceRow As Integer
+    Dim DestinationRow As Integer
+    Dim FindRange As Range
+    Dim VoucherDate As String
+    
+    VoucherDate = Range("D4").value
+    Set FindRange = Range("A1:G500")
+    ' Initialize and find necessary columns from Tally Export
+    SourceRow = FindRange.Find(What:="Source (Consumption)", _
+        LookIn:=xlValues, _
+        SearchOrder:=xlByRows, _
+        MatchCase:=False).Row + 1
+    DestinationRow = FindRange.Find(What:="Destination (Production)", _
+        LookIn:=xlValues, _
+        SearchOrder:=xlByRows, _
+        MatchCase:=False).Row + 1
+    ItemColumn = FindRange.Find(What:="Item Name", _
+        LookIn:=xlValues, _
+        SearchOrder:=xlByRows, _
+        MatchCase:=False).Column
+    QuantityColumn = FindRange.Find(What:="Quantity", _
+        LookIn:=xlValues, _
+        SearchOrder:=xlByRows, _
+        MatchCase:=False).Column
+    PriceColumn = FindRange.Find(What:="Rate", _
+        LookIn:=xlValues, _
+        SearchOrder:=xlByRows, _
+        MatchCase:=False).Column
+        
+    ' Count the number of items
+    Dim FromCount As Integer
+    FromCount = (DestinationRow - SourceRow - 2) / 2
+
+    ' Check all source entries are the same
+    Dim CurrRange As Range
+    Dim Source As String
+    Set CurrRange = Cells(SourceRow, QuantityColumn)
+    Source = CurrRange.value
+    
+    For i = 0 To FromCount - 1
+        If CurrRange.value <> Source Then
+            MsgBox "Error. Multiple Sources. Has to be only one."
+            Exit Sub
+        End If
+        Set CurrRange = CurrRange.Offset(2, 0)
+    Next i
+    
+    ' Check all destination entries are the same and count number of items
+    Dim ToCount As Integer
+    Dim Destination As String
+    ToCount = 0
+    Set CurrRange = Cells(DestinationRow + 1, QuantityColumn)
+    Destination = CurrRange.Offset(-1, 0).value
+    
+    While Not IsEmpty(CurrRange.value)
+        If CurrRange.Offset(-1, 0).value <> Destination Then
+            MsgBox "Error. Destination: " & Destination & ", Actual: " & CurrRange.Offset(-1, 0).value & _
+                ". Multiple Sources. Has to be only one."
+            Exit Sub
+        End If
+        ToCount = ToCount + 1
+        Set CurrRange = CurrRange.Offset(2, 0)
+    Wend
+    
+    ' Check number of items transferred from equals to number of  items in destination
+    If ToCount <> FromCount Then
+        MsgBox "Error. Number of items transferred doesn't match." & FromCount & " vs " & ToCount
+        Exit Sub
+    End If
+    
+    ' Determine transfer type (Store->Shop or Shop->Store)
+    Dim TransferType As String
+    TransferType = "From " & Source & " to " & Destination
+   
+    ' Store Item Names and Prices
+    Const ArraySize = 1000
+    
+    Dim ItemNames(0 To ArraySize) As String
+    Dim ItemQuantities(0 To ArraySize) As Integer
+    Dim ItemPrices(0 To ArraySize) As Double
+    Dim QuantityCheck As New Dictionary
+    Dim PriceCheck As New Dictionary
+    Dim Count As Long
+
+    Count = 0
+    Set CurrRange = Cells(SourceRow, QuantityColumn)
+    
+    Do While CurrRange.value = Source
+        ItemNames(Count) = CurrRange.Offset(0, -1).value
+        ItemQuantities(Count) = CInt(CurrRange.Offset(1, 0).value)
+        ItemPrices(Count) = CDbl(CurrRange.Offset(1, 1).value)
+        QuantityCheck.Add Key:=ItemNames(Count), Item:=ItemQuantities(Count)
+        PriceCheck.Add Key:=ItemNames(Count), Item:=ItemPrices(Count)
+        
+        Count = Count + 1
+        Set CurrRange = CurrRange.Offset(2, 0)
+    Loop
+    
+    ' Compare Source against Destination data
+    Set CurrRange = Cells(DestinationRow, QuantityColumn)
+    Dim CurrName As String
+    Dim CurrQuantity As Integer
+    Dim CurrPrice As Double
+    Dim ItemCount As Integer
+    Dim DestinationItems(0 To ArraySize) As String
+    
+    ItemCount = 0
+    
+    Do While CurrRange.value = Destination
+        CurrName = CurrRange.Offset(0, -1).value
+        CurrQuantity = CurrRange.Offset(1, 0).value
+        CurrPrice = CurrRange.Offset(1, 1).value
+        
+        If Not QuantityCheck.Exists(CurrName) Or Not PriceCheck.Exists(CurrName) Then
+            MsgBox "Error. Item " & CurrName & " in destination not in source"
+            Exit Sub
+        End If
+        
+        If PriceCheck.Item(CurrName) <> CurrPrice Then
+            MsgBox "Error. Price doesn't match for " & CurrName & "."
+            Exit Sub
+        End If
+        
+        If QuantityCheck.Item(CurrName) <> CurrQuantity Then
+            MsgBox "Error. Quantity doesn't match for " & CurrName & "."
+            Exit Sub
+        End If
+
+        DestinationItems(ItemCount) = CurrName
+        ItemCount = ItemCount + 1
+        Set CurrRange = CurrRange.Offset(2, 0)
+    Loop
+    
+    Dim Item As String
+    For i = 0 To ItemCount - 1
+        Item = DestinationItems(i)
+        If Not PriceCheck.Exists(Item) Then
+            MsgBox "Error. " & Item & " doesn't appear in source."
+            Exit Sub
+        End If
+    Next i
+    
+    ' Display result in a new workbook
+    Workbooks.Add
+    
+    Range("B1").value = "Stock Transfer Check"
+    Range("C2").value = "Date:"
+    Range("C3").value = "From:"
+    Range("E3").value = "To:"
+    Range("A5").value = "No."
+    Range("B5").value = "Item Name"
+    Range("C5").value = "Price (Dhs)"
+    Range("D5").value = "Quantity (Pcs)"
+    Range("E5").value = "Store"
+    Range("F5").value = "Shop"
+    
+    Range("D3").value = Source
+    Range("F3").value = Destination
+    Range("D2").value = VoucherDate
+    
+    Set CurrRange = Range("A5")
+    Dim TotalQuantity As Integer
+    TotalQuantity = 0
+    
+    For i = 0 To Count - 1
+        Set CurrRange = CurrRange.Offset(1, 0)
+        CurrRange.value = i + 1
+        CurrRange.Offset(0, 1).value = ItemNames(i)
+        CurrRange.Offset(0, 2).value = ItemPrices(i)
+        CurrRange.Offset(0, 3).value = ItemQuantities(i)
+        TotalQuantity = TotalQuantity + ItemQuantities(i)
+    Next i
+    
+    ActiveSheet.Columns.AutoFit
+    
+    With Range("C5:C" & CurrRange.Row)
+        .NumberFormat = "0.00;(-)0.00"
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    With Range("D5:D" & CurrRange.Row)
+        .NumberFormat = "0;(-)0"
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    With Range("B" & CurrRange.Row + 1)
+        .value = "Total"
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    With Range("D" & CurrRange.Row + 1)
+        .value = TotalQuantity
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    With Range("B" & CurrRange.Row + 2)
+        .value = "Checked by:"
+        .HorizontalAlignment = xlCenter
+        .Font.Bold = True
+    End With
+    
+    Range("A5:A" & CurrRange.Row).HorizontalAlignment = xlCenter
+    
+    Range("B1,C2,C3,E3,A5:F5").Select
+    Range("A5").Activate
+    Selection.Font.Bold = True
+    Range("D2:D3,F3").Select
+    Range("F3").Activate
+    With Selection
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlBottom
+        .WrapText = False
+        .Orientation = 0
+        .AddIndent = False
+        .IndentLevel = 0
+        .ShrinkToFit = False
+        .ReadingOrder = xlContext
+        .MergeCells = False
+    End With
+    Range("A5:F5").Select
+    With Selection
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlBottom
+        .WrapText = False
+        .Orientation = 0
+        .AddIndent = False
+        .IndentLevel = 0
+        .ShrinkToFit = False
+        .ReadingOrder = xlContext
+        .MergeCells = False
+    End With
+    Columns("C:F").Select
+    Selection.ColumnWidth = 13
+    
+    With Rows(CurrRange.Row + 2)
+        .RowHeight = .RowHeight * 2
+    End With
+    
+    MakeThinBorders ("A5:F" & CurrRange.Row + 2)
+    GeneralPrintSetup ("A1:F" & CurrRange.Row + 5)
+    
+End Sub
