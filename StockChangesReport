@@ -1,0 +1,320 @@
+' Compares last StkSum export data with called upon StkSum Tally export
+Sub DayReport()
+
+    Const ArraySize = 10000
+    
+    ' Remember information from Original Stock Summary
+    Dim CurrentWb As String
+    Dim Path As String
+    Dim CurrentDate As String
+    CurrentWb = ActiveWorkbook.Name
+    Path = ActiveWorkbook.Path
+    CurrentDate = Mid(ActiveSheet.Cells(2, DhsPriceCol - 1).value, 5)
+    
+    ' Remember column with Price in Dirhams
+    Dim DhsPriceCol As Integer
+    Dim Found As Range
+    Set Found = ActiveSheet.Range("A1:O5").Find(What:="Std. Price", LookIn:=xlValues, SearchOrder:=xlByRows, MatchCase:=True)
+    If Found Is Nothing Then
+        MsgBox "Error. Coudn't find Price Column in Dirhams"
+        Exit Sub
+    End If
+    DhsPriceCol = Found.Column + 1
+     
+    'Get data from working export
+    Dim CurrQuantity As New Dictionary
+    Dim CurrCost As New Dictionary
+    Dim CurrPrice As New Dictionary
+    
+    'Bookkeeping variables
+    Dim CurrSize As Long
+    Dim CurrentKey As Range
+    Dim NextCell As Range
+    CurrSize = 0
+    Set CurrentKey = Range("A7")
+    
+    'Remainder Calculation Settings
+    Dim FewRemainingThreshold As Long
+    Dim FewRemainingCounter As Long
+    Dim FewRemainingArray(0 To ArraySize) As String
+    FewRemainingThreshold = 2
+    FewRemainingCounter = 0
+    
+    Do While Not IsEmpty(CurrentKey.value)
+        Set NextCell = CurrentKey.Offset(0, 1)
+    
+        If Not IsEmpty(NextCell.value) Then
+            If CurrQuantity.Exists(CurrentKey.value) Then
+                MsgBox "Duplicate - " & CurrentKey.value
+                Exit Sub
+            End If
+            
+            CurrQuantity.Add Key:=CurrentKey.value, Item:=NextCell.value
+            CurrCost.Add Key:=CurrentKey.value, Item:=CurrentKey.Offset(0, 2).value
+            CurrPrice.Add Key:=CurrentKey.value, Item:=Cells(CurrentKey.Row, DhsPriceCol).value
+        End If
+        
+        CurrSize = CurrSize + 1
+        Set CurrentKey = CurrentKey.Offset(1, 0)
+    Loop
+ 
+    ' Open the last StkSum export
+    Workbooks.Open Filename:="\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Last Stock Summary.xlsx"
+    
+    Dim PrevPrice As New Dictionary
+    Dim PrevQuantity As New Dictionary
+    Dim SoldCounter As Long
+    Dim ChangedCounter As Long
+
+    Dim Sold(0 To ArraySize) As String
+    Dim Changed(0 To ArraySize) As String
+  
+    SoldCounter = 0
+    ChangedCounter = 0
+    Set CurrentKey = Range("A7")
+
+    Set Found = ActiveSheet.Range("A1:K5").Find(What:="Std. Price", LookIn:=xlValues, _
+        SearchOrder:=xlByRows, MatchCase:=True)
+        
+    If Found Is Nothing Then
+        MsgBox "Error. Coudn't find Price Column in Dirhams"
+        Exit Sub
+    End If
+    
+    DhsPriceCol = Found.Column + 1
+
+    '   Get date of the last StkSum export
+    Dim LastDate As String
+    LastDate = ActiveSheet.Cells(2, DhsPriceCol - 1).value
+    LastDate = Mid(LastDate, 5)
+    
+    ' Compare current data to previous data _
+    Checks for: Sold, changed price
+    Do While Not IsEmpty(CurrentKey.value)
+    
+        Set NextCell = CurrentKey.Offset(0, 1)
+        
+        If Not IsEmpty(NextCell.value) Then
+            
+            PrevPrice.Add Key:=CurrentKey.value, Item:=Cells(CurrentKey.Row, DhsPriceCol).value
+            PrevQuantity.Add Key:=CurrentKey.value, Item:=NextCell.value
+            
+            ' Sold item check
+            If Not CurrQuantity.Exists(CurrentKey.value) Then
+                Sold(SoldCounter) = CurrentKey.value
+                SoldCounter = SoldCounter + 1
+            ' Price Change check
+            ElseIf CurrPrice.Item(CurrentKey.value) <> Cells(CurrentKey.Row, DhsPriceCol).value Then
+                Changed(ChangedCounter) = CurrentKey.value
+                ChangedCounter = ChangedCounter + 1
+            End If
+            
+        End If
+        
+        Set CurrentKey = CurrentKey.Offset(1, 0)
+        
+    Loop
+    
+    ' Check for new items
+    Dim CurrItems() As String
+    Dim NewItems(0 To ArraySize) As String
+    Dim NewCounter As Long
+    Dim i As Long
+    NewCounter = 0
+    CurrItems = CurrQuantity.Keys()
+    
+    For i = LBound(CurrItems) To UBound(CurrItems)
+
+        If Not PrevPrice.Exists(CurrItems(i)) Then
+            NewItems(NewCounter) = CurrItems(i)
+            NewCounter = NewCounter + 1
+        End If
+
+        If CurrQuantity.Item(CurrItems(i)) <= FewRemainingThreshold Then
+            If Not PrevQuantity.Exists(CurrItems(i)) Then
+                FewRemainingArray(FewRemainingCounter) = CurrItems(i)
+                FewRemainingCounter = FewRemainingCounter + 1
+            ElseIf PrevQuantity.Item(CurrItems(i)) <> CurrQuantity.Item(CurrItems(i)) Then
+                FewRemainingArray(FewRemainingCounter) = CurrItems(i)
+                FewRemainingCounter = FewRemainingCounter + 1
+            End If
+        End If
+
+    Next i
+    
+    ' Write the report
+    Workbooks.Add
+    Cells.Font.Name = "Arial"
+    
+    ' Write headers
+    Cells(1, 1).value = "Robin GT"
+    Cells(2, 1).value = "Stock Analysis"
+    Cells(1, 3).value = "Dating from:"
+    Range("C2:D2").Cells.Merge
+    Range("C2:D2").HorizontalAlignment = xlLeft
+    Cells(2, 3).value = LastDate & " to " & CurrentDate
+    
+    Cells(4, 1).value = "New Item"
+    Cells(4, 3).value = "Std. Cost in Dhs"
+    Cells(4, 2).value = "Stock Quantity (Pcs)"
+    Cells(4, 4).value = "Std. Price in Dhs"
+    
+    Range("A1:D4").Font.Bold = True
+    Range("A4:D4").HorizontalAlignment = xlCenter
+    
+    Dim StartRow As Integer
+    Dim CurrRow As Integer
+    StartRow = 4
+    CurrRow = StartRow
+    
+    ' Write the new items if any
+    If NewCounter > 0 Then
+        For j = 0 To NewCounter - 1
+            CurrRow = CurrRow + 1
+            Cells(CurrRow, 1).value = NewItems(j)
+            Cells(CurrRow, 2).value = CurrQuantity.Item(NewItems(j))
+            Cells(CurrRow, 3).value = CurrCost.Item(NewItems(j))
+            Cells(CurrRow, 4).value = CurrPrice.Item(NewItems(j))
+        Next j
+    Else
+        NewCounter = 1
+        CurrRow = CurrRow + 1
+        Cells(CurrRow, 1).value = "No new items"
+    End If
+
+    With Range("C" & (StartRow + 1) & ":D" & CurrRow)
+        .NumberFormat = "0.00;(-)  0.00   "
+        .HorizontalAlignment = xlCenter
+    End With
+
+    With Range("B" & (StartRow + 1) & ":B" & CurrRow)
+        .NumberFormat = "0;(-)  0   "
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    MakeThinBorders ("A" & StartRow & ":D" & CurrRow)
+    
+    CurrRow = CurrRow + 2
+    Cells(CurrRow, 1).value = "Sold Item"
+    Cells(CurrRow, 2).value = "Quantity (Pcs)"
+    Cells(CurrRow, 3).value = "Notes"
+    
+    With Range(Cells(CurrRow, 1), Cells(CurrRow, 3))
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    StartRow = CurrRow
+    
+    ' Write the Sold items if any
+    If SoldCounter > 0 Then
+        For j = 0 To (SoldCounter - 1)
+            CurrRow = CurrRow + 1
+            Cells(CurrRow, 1).value = Sold(j)
+            Cells(CurrRow, 2).value = 0
+        Next j
+    Else
+        SoldCounter = 1
+        CurrRow = CurrRow + 1
+        Cells(CurrRow, 1).value = "None items sold out"
+    End If
+    
+    With Range("B" & (StartRow + 1) & ":B" & CurrRow)
+        .NumberFormat = "0;(-)  0   "
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    MakeThinBorders ("A" & StartRow & ":C" & CurrRow)
+    CurrRow = CurrRow + 2
+    
+    Cells(CurrRow, 1).value = "One Piece Item"
+    Cells(CurrRow, 2).value = "Quantity (Pcs)"
+    Cells(CurrRow, 3).value = "Notes"
+    
+    With Range(Cells(CurrRow, 1), Cells(CurrRow, 3))
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    StartRow = CurrRow
+    
+    ' Write the 1 piece left items if any
+    If FewRemainingCounter > 0 Then
+        For j = 0 To (FewRemainingCounter - 1)
+            CurrRow = CurrRow + 1
+            Cells(CurrRow, 1).value = FewRemainingArray(j)
+            Cells(CurrRow, 2).value = 1
+        Next j
+    Else
+        FewRemainingCounter = 1
+        CurrRow = CurrRow + 1
+        Cells(CurrRow, 1).value = "No items with quantity of 1"
+    End If
+    
+    With Range("B" & (StartRow + 1) & ":B" & CurrRow)
+        .NumberFormat = "0;(-)  0   "
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    MakeThinBorders ("A" & StartRow & ":C" & CurrRow)
+    CurrRow = CurrRow + 2
+    StartRow = CurrRow
+    
+    Cells(CurrRow, 1).value = "Changed Price Item"
+    Cells(CurrRow, 2).value = "Last Price in Dhs"
+    Cells(CurrRow, 3).value = "New Price in Dhs"
+    Cells(CurrRow, 4).value = "Notes"
+    With Range(Cells(CurrRow, 1), Cells(CurrRow, 4))
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    ' Write the changed items if any
+    If ChangedCounter > 0 Then
+        For j = 0 To (ChangedCounter - 1)
+            CurrRow = CurrRow + 1
+            Cells(CurrRow, 1).value = Changed(j)
+            Cells(CurrRow, 2).value = PrevPrice.Item(Changed(j))
+            Cells(CurrRow, 3).value = CurrPrice.Item(Changed(j))
+        Next j
+    Else
+        ChangedCounter = 1
+        CurrRow = CurrRow + 1
+        Cells(CurrRow, 1).value = "No items with changed prices"
+    End If
+    
+    MakeThinBorders ("A" & StartRow & ":D" & CurrRow)
+    With Range("B" & (StartRow + 1) & ":C" & CurrRow)
+        .NumberFormat = "0.00;(-)  0.00   "
+        .HorizontalAlignment = xlCenter
+    End With
+    
+    ActiveSheet.Columns.AutoFit
+    Columns(5).ColumnWidth = 17.5
+    GeneralPrintSetup ("A1:D" & (CurrRow + ChangedCounter))
+    
+    Set CurrQuantity = Nothing
+    Set CurrCost = Nothing
+    Set CurrPrice = Nothing
+    Set PrevPrice = Nothing
+    Set PrevQuantity = Nothing
+    
+    Dim SaveOption As Variant
+    SaveOption = MsgBox("Do you want to update previous stock information?", vbYesNo, "Continue?")
+    
+    If SaveOption = vbYes Then
+        Dim DateNow As String
+        DateNow = Format(Now, "MM/dd/yyyy hh mm")
+        Application.DisplayAlerts = False
+        ActiveWorkbook.SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Analysis.xlsx"
+        Workbooks("Last Stock Summary").SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Stock Summary Backup " & DateNow & ".xlsx"
+        Workbooks("Stock Summary Backup " & DateNow).Close
+        Workbooks(CurrentWb).SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Last Stock Summary.xlsx"
+        Workbooks.Open Path & "\" & CurrentWb
+        Application.DisplayAlerts = True
+    End If
+    
+    Workbooks("Last Stock Summary").Close
+    Windows.Arrange ArrangeStyle:=xlVertical
+    
+End Sub
