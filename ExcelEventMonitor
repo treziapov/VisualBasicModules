@@ -1,0 +1,8 @@
+Public g_clsAppMonitor As CAppMonitor
+
+' This function starts monitoring opened workbooks
+Sub StartAppMonitor()
+    If g_clsAppMonitor Is Nothing Then
+        Set g_clsAppMonitor = New CAppMonitor
+    End If
+End Sub
