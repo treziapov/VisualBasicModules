@@ -1,3 +1,13 @@
+' Prompt the user for a number
+Public Function AskForRemainderThreshold() As Integer
+    Dim Default As String: Default = 2
+    Dim UserInput As String: UserInput = "None"
+    Do While Not IsNumeric(UserInput)
+        UserInput = InputBox("Enter Remainder Value", "Remainder", Default)
+    Loop
+    AskForRemainderThreshold = CInt(UserInput)
+End Function
+
 ' Compares last StkSum export data with called upon StkSum Tally export
 Sub DayReport()
 
@@ -9,7 +19,6 @@ Sub DayReport()
     Dim CurrentDate As String
     CurrentWb = ActiveWorkbook.Name
     Path = ActiveWorkbook.Path
-    CurrentDate = Mid(ActiveSheet.Cells(2, DhsPriceCol - 1).value, 5)
     
     ' Remember column with Price in Dirhams
     Dim DhsPriceCol As Integer
@@ -20,6 +29,7 @@ Sub DayReport()
         Exit Sub
     End If
     DhsPriceCol = Found.Column + 1
+    CurrentDate = Mid(ActiveSheet.Cells(2, DhsPriceCol - 1).value, 5)
      
     'Get data from working export
     Dim CurrQuantity As New Dictionary
@@ -37,7 +47,7 @@ Sub DayReport()
     Dim FewRemainingThreshold As Long
     Dim FewRemainingCounter As Long
     Dim FewRemainingArray(0 To ArraySize) As String
-    FewRemainingThreshold = 2
+    FewRemainingThreshold = AskForRemainderThreshold()
     FewRemainingCounter = 0
     
     Do While Not IsEmpty(CurrentKey.value)
@@ -88,8 +98,8 @@ Sub DayReport()
     LastDate = ActiveSheet.Cells(2, DhsPriceCol - 1).value
     LastDate = Mid(LastDate, 5)
     
-    ' Compare current data to previous data _
-    Checks for: Sold, changed price
+    ' Compare current data to previous data
+    ' Checks for: Sold, changed price
     Do While Not IsEmpty(CurrentKey.value)
     
         Set NextCell = CurrentKey.Offset(0, 1)
@@ -227,7 +237,7 @@ Sub DayReport()
     MakeThinBorders ("A" & StartRow & ":C" & CurrRow)
     CurrRow = CurrRow + 2
     
-    Cells(CurrRow, 1).value = "One Piece Item"
+    Cells(CurrRow, 1).value = "Less than " & FewRemainingThreshold
     Cells(CurrRow, 2).value = "Quantity (Pcs)"
     Cells(CurrRow, 3).value = "Notes"
     
@@ -238,17 +248,17 @@ Sub DayReport()
     
     StartRow = CurrRow
     
-    ' Write the 1 piece left items if any
+    ' Write the Few Remaining Left items if any
     If FewRemainingCounter > 0 Then
         For j = 0 To (FewRemainingCounter - 1)
             CurrRow = CurrRow + 1
             Cells(CurrRow, 1).value = FewRemainingArray(j)
-            Cells(CurrRow, 2).value = 1
+            Cells(CurrRow, 2).value = CurrQuantity.Item(FewRemainingArray(j))
         Next j
     Else
         FewRemainingCounter = 1
         CurrRow = CurrRow + 1
-        Cells(CurrRow, 1).value = "No items with quantity of 1"
+        Cells(CurrRow, 1).value = "No items with quantity of " & FewRemainingThreshold
     End If
     
     With Range("B" & (StartRow + 1) & ":B" & CurrRow)
@@ -293,6 +303,7 @@ Sub DayReport()
     Columns(5).ColumnWidth = 17.5
     GeneralPrintSetup ("A1:D" & (CurrRow + ChangedCounter))
     
+    'Free the resources
     Set CurrQuantity = Nothing
     Set CurrCost = Nothing
     Set CurrPrice = Nothing
@@ -318,3 +329,18 @@ Sub DayReport()
     Windows.Arrange ArrangeStyle:=xlVertical
     
 End Sub
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
