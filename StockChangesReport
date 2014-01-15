@@ -1,169 +1,384 @@
-' Prompt the user for a number
-Public Function AskForRemainderThreshold() As Integer
-    Dim Default As String: Default = 2
-    Dim UserInput As String: UserInput = "None"
-    Do While Not IsNumeric(UserInput)
-        UserInput = InputBox("Enter Remainder Value", "Remainder", Default)
+'
+'Constants, settings
+'
+Public Const INT_ARRAY_SIZE As Integer = 10000
+Public Const STR_CHANGES_TRACKING_FILE_PATH As String = "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Stock Changes Tracking.xlsx"
+Public Const STR_NONE_FROZEN_MESSAGE = "No items unchanged for 45 days"
+'
+'Opens the given file
+'Creates a new file if it doesn't exist
+'
+Sub CheckAndOpenFile(filePath As String)
+    If Dir(filePath) = "" Then
+        Dim NewBook As Workbook: Set NewBook = Workbooks.Add
+        With NewBook
+            .Title = "Item Tracking"
+            .Subject = "Tracking"
+            .SaveAs Filename:=filePath
+        End With
+    Else
+        Workbooks.Open Filename:=filePath
+    End If
+End Sub
+'
+'Prompt the user to enter a numeric value
+'
+Public Function AskUserForNumber(userMessage As String, defaultValue As String) As Integer
+    Dim strUserInput As String: strUserInput = "None"
+    Do While Not IsNumeric(strUserInput)
+        strUserInput = InputBox(userMessage, "", defaultValue)
     Loop
-    AskForRemainderThreshold = CInt(UserInput)
+    AskUserForNumber = CInt(strUserInput)
 End Function
+'
+'Converts the given string to a date
+'
+Public Function ConvertStringToDate(strDate As String) As Date
+    ConvertStringToDate = DateValue(strDate)
+End Function
+'
+'Checks for items that haven't CHANGED PRICE and QUANTITY for a user-defined time period (in months)
+'Tracking File Format:
+'   1.Item Name     2. Last Quantity Change Date    3. Last Price Change Date   4. Last Quantity    5. Last Price
+'
+Public Function GetFrozenItemNames(intChangePeriodDays As Integer, ByRef dictCurrentStockItems As Dictionary, currentDate As Date) As Variant
+    Dim cstrFrozenItemNames() As String
+    Dim lngFrozenItemsCounter As Long: lngFrozenItemsCounter = 0
 
-' Compares last StkSum export data with called upon StkSum Tally export
-Sub DayReport()
+    'Load previous information in memory
+    CheckAndOpenFile (STR_CHANGES_TRACKING_FILE_PATH)
+    Dim dictLastStockItems As New Dictionary
+    Dim rngCurrentCell As Range: Set rngCurrentCell = ActiveSheet.Range("A1")
+    Dim currentStockItem As StockItem
+    Do While Not IsEmpty(rngCurrentCell.value)
+        Set currentStockItem = New StockItem
+        currentStockItem.Name = rngCurrentCell.value
+        currentStockItem.LatestQuantityChangeDate = CDate(rngCurrentCell.Offset(0, 1).value)
+        currentStockItem.LatestPriceChangeDate = CDate(rngCurrentCell.Offset(0, 2).value)
+        currentStockItem.Quantity = rngCurrentCell.Offset(0, 3).value
+        currentStockItem.Price = rngCurrentCell.Offset(0, 4).value
+        dictLastStockItems.Add Key:=currentStockItem.Name, Item:=currentStockItem
+        Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
+    Loop
 
-    Const ArraySize = 10000
+    'Loop through CURRENT items
+    'Check if changes haven't been made for over threshold time
+    Dim currentStockItems() As String: currentStockItems = dictCurrentStockItems.Keys()
+    Dim lastStockItem As StockItem
+    Dim i As Integer
+    For i = LBound(currentStockItems) To UBound(currentStockItems)
+        Set currentStockItem = dictCurrentStockItems.Item(currentStockItems(i))
+        If dictLastStockItems.Exists(currentStockItem.Name) Then
+            'Item has a last entry, FROZEN if Price AND Quantity are THE SAME and Change DATE DIFFERENCE >= intChangePeriodDays
+            Set lastStockItem = dictLastStockItems.Item(currentStockItem.Name)
+            If lastStockItem.Price = currentStockItem.Price And lastStockItem.Quantity = currentStockItem.Quantity And _
+                DateDiff("d", lastStockItem.LatestPriceChangeDate, currentDate) >= intChangePeriodDays And _
+                DateDiff("d", lastStockItem.LatestQuantityChangeDate, currentDate) >= intChangePeriodDays Then
+                    ReDim Preserve cstrFrozenItemNames(lngFrozenItemsCounter)
+                    cstrFrozenItemNames(lngFrozenItemsCounter) = currentStockItem.Name
+                    lngFrozenItemsCounter = lngFrozenItemsCounter + 1
+                    
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = currentDate
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = currentDate
+            Else
+                If currentStockItem.Quantity <> lastStockItem.Quantity Then
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = currentDate
+                Else
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = lastStockItem.LatestQuantityChangeDate
+                End If
+                
+                If currentStockItem.Price <> lastStockItem.Price Then
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = currentDate
+                Else
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = lastStockItem.LatestPriceChangeDate
+                End If
+            End If
+        Else
+            'Item not in the last tracking file
+            dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = currentDate
+            dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = currentDate
+        End If
+    Next i
+
+    'Rewrite the TRACKING file with updated information
+    ActiveSheet.Cells.Clear
+    Const STR_DATE_FORMAT As String = "MM/dd/yyyy"
+    Set rngCurrentCell = ActiveSheet.Range("A1")
+    For i = LBound(currentStockItems) To UBound(currentStockItems)
+        Set currentStockItem = dictCurrentStockItems.Item(currentStockItems(i))
+        rngCurrentCell.value = currentStockItem.Name
+        rngCurrentCell.Offset(0, 1).value = Format(currentStockItem.LatestQuantityChangeDate, STR_DATE_FORMAT)
+        rngCurrentCell.Offset(0, 2).value = Format(currentStockItem.LatestPriceChangeDate, STR_DATE_FORMAT)
+        rngCurrentCell.Offset(0, 3).value = currentStockItem.Quantity
+        rngCurrentCell.Offset(0, 4).value = currentStockItem.Price
+        Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
+    Next i
+
+    'Free resources
+    Set dictLastStockItems = Nothing
+
+    Application.DisplayAlerts = False
+    ActiveWorkbook.SaveAs (STR_CHANGES_TRACKING_FILE_PATH)
+    ActiveWorkbook.Close
+    Application.DisplayAlerts = True
+
+    If IsEmpty(cstrFrozenItemNames) Then
+        ReDim Preserve cstrFrozenItemNames(lngFrozenItemsCounter)
+        cstrFrozenItemNames(lngFrozenItemsCounter) = STR_NONE_FROZEN_MESSAGE
+    End If
+    GetFrozenItemNames = cstrFrozenItemNames
+End Function
+'
+'
+'
+Function IsArrayEmpty(Ar As Variant) As Boolean
+    If InStr(TypeName(Ar), "(") > 0 Then
+        If Not IsEmpty(Ar) Then
+            If UBound(Ar) > 0 Then
+                IsArrayEmpty = False
+            Else
+                IsArrayEmpty = True
+            End If
+        End If
+    End If
+End Function
+'
+'Compares Stock Summary files to produce a report of differences and changes
+'
+Sub CompareStockSummaries()
     
-    ' Remember information from Original Stock Summary
-    Dim CurrentWb As String
-    Dim Path As String
-    Dim CurrentDate As String
-    CurrentWb = ActiveWorkbook.Name
-    Path = ActiveWorkbook.Path
-    
-    ' Remember column with Price in Dirhams
-    Dim DhsPriceCol As Integer
-    Dim Found As Range
-    Set Found = ActiveSheet.Range("A1:O5").Find(What:="Std. Price", LookIn:=xlValues, SearchOrder:=xlByRows, MatchCase:=True)
-    If Found Is Nothing Then
+    Const STR_PREVIOUS_SUMMARY_FILE_PATH As String = "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Last Stock Summary.xlsx"
+    Const STR_AED_PRICE_COLUMN_LABEL As String = "Std. Price"
+
+    'Store information for CURRENT Stock Summary
+    Dim WB_CURRENT As String: WB_CURRENT = ActiveWorkbook.Name
+    Dim STR_CURRENT_PATH As String: STR_CURRENT = ActiveWorkbook.Path
+
+    'Common
+    Dim rngCurrentCell As Range: Set rngCurrentCell = Nothing
+    Dim rngNextCell As Range: Set rngNextCell = Nothing
+    Dim rngFindCell As Range: Set rngFindCell = Nothing
+    Dim intAedPriceColumn As Integer: intAedPriceColumn = -1
+
+    'Find the required column with price in AED
+    Set rngFindCell = ActiveSheet.Range("A1:O5").Find(What:=STR_AED_PRICE_COLUMN_LABEL, LookIn:=xlValues, SearchOrder:=xlByRows, MatchCase:=True)
+    If rngFindCell Is Nothing Then
         MsgBox "Error. Coudn't find Price Column in Dirhams"
         Exit Sub
     End If
-    DhsPriceCol = Found.Column + 1
-    CurrentDate = Mid(ActiveSheet.Cells(2, DhsPriceCol - 1).value, 5)
-     
-    'Get data from working export
-    Dim CurrQuantity As New Dictionary
-    Dim CurrCost As New Dictionary
-    Dim CurrPrice As New Dictionary
-    
-    'Bookkeeping variables
-    Dim CurrSize As Long
-    Dim CurrentKey As Range
-    Dim NextCell As Range
-    CurrSize = 0
-    Set CurrentKey = Range("A7")
-    
+    intAedPriceColumn = rngFindCell.Column + 1
+    Dim STR_CURRENT_DATE As String: STR_CURRENT_DATE = Mid(ActiveSheet.Cells(2, intAedPriceColumn - 1).value, 5)
+
     'Remainder Calculation Settings
-    Dim FewRemainingThreshold As Long
-    Dim FewRemainingCounter As Long
-    Dim FewRemainingArray(0 To ArraySize) As String
-    FewRemainingThreshold = AskForRemainderThreshold()
-    FewRemainingCounter = 0
+    Dim FewRemainingThreshold As Long: FewRemainingThreshold = 2
+    FewRemainingThreshold = AskUserForNumber("Enter Remainder Value", "2")
+
+    'Bookkeeping variables for CURRENT stock information
+    Dim dictCurrentStockItems As New Dictionary
+    'Dim dictCurrentQuantity As New Dictionary, dictCurrentCost As New Dictionary, dictCurrentPrice As New Dictionary
+    Dim lngDictSize As Long: lngDictSize = 0
+    Dim currentStockItem As StockItem
+    Set rngCurrentCell = Range("A7")
     
-    Do While Not IsEmpty(CurrentKey.value)
-        Set NextCell = CurrentKey.Offset(0, 1)
-    
-        If Not IsEmpty(NextCell.value) Then
-            If CurrQuantity.Exists(CurrentKey.value) Then
-                MsgBox "Duplicate - " & CurrentKey.value
+    'Go through the CURRENT Stock Summary and store CURRENT stock information in memory for further analysis
+    Do While Not IsEmpty(rngCurrentCell.value)
+        Set rngNextCell = rngCurrentCell.Offset(0, 1)
+        If Not IsEmpty(rngNextCell.value) Then
+            If dictCurrentStockItems.Exists(rngCurrentCell.value) Then
+                MsgBox "Duplicate - " & rngCurrentCell.value
                 Exit Sub
             End If
-            
-            CurrQuantity.Add Key:=CurrentKey.value, Item:=NextCell.value
-            CurrCost.Add Key:=CurrentKey.value, Item:=CurrentKey.Offset(0, 2).value
-            CurrPrice.Add Key:=CurrentKey.value, Item:=Cells(CurrentKey.Row, DhsPriceCol).value
+            Set currentStockItem = New StockItem
+            currentStockItem.Name = rngCurrentCell.value
+            currentStockItem.Cost = rngCurrentCell.Offset(0, 2).value
+            currentStockItem.Price = Cells(rngCurrentCell.Row, intAedPriceColumn).value
+            currentStockItem.Quantity = rngNextCell.value
+            dictCurrentStockItems.Add Key:=currentStockItem.Name, Item:=currentStockItem
+            'dictCurrentQuantity.Add Key:=rngCurrentCell.value, Item:=rngNextCell.value
+            'dictCurrentCost.Add Key:=rngCurrentCell.value, Item:=rngCurrentCell.Offset(0, 2).value
+            'dictCurrentPrice.Add Key:=rngCurrentCell.value, Item:=Cells(rngCurrentCell.Row, intAedPriceColumn).value
         End If
-        
-        CurrSize = CurrSize + 1
-        Set CurrentKey = CurrentKey.Offset(1, 0)
+        lngDictSize = lngDictSize + 1
+        Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
     Loop
  
-    ' Open the last StkSum export
-    Workbooks.Open Filename:="\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Last Stock Summary.xlsx"
-    
-    Dim PrevPrice As New Dictionary
-    Dim PrevQuantity As New Dictionary
-    Dim SoldCounter As Long
-    Dim ChangedCounter As Long
+    'Switch to the PREVIOUS Stock Summary file
+    Workbooks.Open Filename:=STR_PREVIOUS_SUMMARY_FILE_PATH
 
-    Dim Sold(0 To ArraySize) As String
-    Dim Changed(0 To ArraySize) As String
-  
-    SoldCounter = 0
-    ChangedCounter = 0
-    Set CurrentKey = Range("A7")
+    'Bookkeeping variables for PREVIOUS stock information
+    Dim dictPreviousStockItems As New Dictionary
+    'Dim dictPreviousPrice As New Dictionary, dictPreviousQuantity As New Dictionary
+    Dim astrSoldItemNames() As String, astrChangedItemNames() As String, _
+        astrNewItemNames() As String, astrFewRemainingItemNames() As String
+    Dim lngSoldItemsCounter As Long: lngSoldItemsCounter = 0
+    Dim lngChangedItemsCounter As Long: lngChangedItemsCounter = 0
+    Dim lngFewRemainingItemsCounter As Long: lngFewRemainingItemsCounter = 0
+    Dim lngNewItemsCounter As Long: lngNewItemsCounter = 0
 
-    Set Found = ActiveSheet.Range("A1:K5").Find(What:="Std. Price", LookIn:=xlValues, _
-        SearchOrder:=xlByRows, MatchCase:=True)
-        
-    If Found Is Nothing Then
+    'Check and find AED price column
+    Set rngFindCell = ActiveSheet.Range("A1:K5").Find(What:="Std. Price", LookIn:=xlValues, SearchOrder:=xlByRows, MatchCase:=True)
+    If rngFindCell Is Nothing Then
         MsgBox "Error. Coudn't find Price Column in Dirhams"
         Exit Sub
     End If
-    
-    DhsPriceCol = Found.Column + 1
+    intAedPriceColumn = rngFindCell.Column + 1
+    Dim STR_PREVIOUS_DATE As String: STR_PREVIOUS_DATE = Mid(ActiveSheet.Cells(2, intAedPriceColumn - 1).value, 5)
+    Set rngCurrentCell = Range("A7")
 
-    '   Get date of the last StkSum export
-    Dim LastDate As String
-    LastDate = ActiveSheet.Cells(2, DhsPriceCol - 1).value
-    LastDate = Mid(LastDate, 5)
-    
-    ' Compare current data to previous data
-    ' Checks for: Sold, changed price
-    Do While Not IsEmpty(CurrentKey.value)
-    
-        Set NextCell = CurrentKey.Offset(0, 1)
-        
-        If Not IsEmpty(NextCell.value) Then
+    'Go through the PREVIOUS Stock Summary and compare with CURRENT
+    'Check for: SOLD OUT, PRICE CHANGE, FEW REMAINING, NEW
+    Dim previousStockItem As StockItem
+    Do While Not IsEmpty(rngCurrentCell.value)
+        Set rngNextCell = rngCurrentCell.Offset(0, 1)
+        If Not IsEmpty(rngNextCell.value) Then
+            Set previousStockItem = New StockItem
+            previousStockItem.Name = rngCurrentCell.value
+            previousStockItem.Price = Cells(rngCurrentCell.Row, intAedPriceColumn).value
+            previousStockItem.Quantity = rngNextCell.value
+            dictPreviousStockItems.Add Key:=previousStockItem.Name, Item:=previousStockItem
+            'dictPreviousPrice.Add Key:=rngCurrentCell.value, Item:=Cells(rngCurrentCell.Row, intAedPriceColumn).value
+            'dictPreviousQuantity.Add Key:=rngCurrentCell.value, Item:=rngNextCell.value
             
-            PrevPrice.Add Key:=CurrentKey.value, Item:=Cells(CurrentKey.Row, DhsPriceCol).value
-            PrevQuantity.Add Key:=CurrentKey.value, Item:=NextCell.value
-            
-            ' Sold item check
-            If Not CurrQuantity.Exists(CurrentKey.value) Then
-                Sold(SoldCounter) = CurrentKey.value
-                SoldCounter = SoldCounter + 1
-            ' Price Change check
-            ElseIf CurrPrice.Item(CurrentKey.value) <> Cells(CurrentKey.Row, DhsPriceCol).value Then
-                Changed(ChangedCounter) = CurrentKey.value
-                ChangedCounter = ChangedCounter + 1
+            'SOLD check
+            If Not dictCurrentStockItems.Exists(rngCurrentCell.value) Then
+                ReDim Preserve astrSoldItemNames(lngSoldItemsCounter)
+                astrSoldItemNames(lngSoldItemsCounter) = rngCurrentCell.value
+                lngSoldItemsCounter = lngSoldItemsCounter + 1
+            'PRICE CHANGE check
+            ElseIf dictCurrentStockItems.Item(previousStockItem.Name).Price <> previousStockItem.Price Then
+                ReDim Preserve astrChangedItemNames(lngChangedItemsCounter)
+                astrChangedItemNames(lngChangedItemsCounter) = rngCurrentCell.value
+                lngChangedItemsCounter = lngChangedItemsCounter + 1
             End If
-            
         End If
-        
-        Set CurrentKey = CurrentKey.Offset(1, 0)
-        
+        Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
     Loop
     
-    ' Check for new items
-    Dim CurrItems() As String
-    Dim NewItems(0 To ArraySize) As String
-    Dim NewCounter As Long
-    Dim i As Long
-    NewCounter = 0
-    CurrItems = CurrQuantity.Keys()
-    
-    For i = LBound(CurrItems) To UBound(CurrItems)
-
-        If Not PrevPrice.Exists(CurrItems(i)) Then
-            NewItems(NewCounter) = CurrItems(i)
-            NewCounter = NewCounter + 1
-        End If
-
-        If CurrQuantity.Item(CurrItems(i)) <= FewRemainingThreshold Then
-            If Not PrevQuantity.Exists(CurrItems(i)) Then
-                FewRemainingArray(FewRemainingCounter) = CurrItems(i)
-                FewRemainingCounter = FewRemainingCounter + 1
-            ElseIf PrevQuantity.Item(CurrItems(i)) <> CurrQuantity.Item(CurrItems(i)) Then
-                FewRemainingArray(FewRemainingCounter) = CurrItems(i)
-                FewRemainingCounter = FewRemainingCounter + 1
+    'Go through CURRENT items again and check for NEW and FEW REMAINING
+    Dim aCurrentStockItems() As String: aCurrentStockItems = dictCurrentStockItems.Keys()
+    For i = LBound(aCurrentStockItems) To UBound(aCurrentStockItems)
+        Set currentStockItem = dictCurrentStockItems.Item(aCurrentStockItems(i))
+        'NEW check
+        If Not dictPreviousStockItems.Exists(currentStockItem.Name) Then
+            ReDim Preserve astrNewItemNames(lngNewItemsCounter)
+            astrNewItemNames(lngNewItemsCounter) = aCurrentStockItems(i)
+            lngNewItemsCounter = lngNewItemsCounter + 1
+        'FEW REMAINING check
+        ElseIf currentStockItem.Quantity <= FewRemainingThreshold Then
+            If Not dictPreviousStockItems.Exists(currentStockItem.Name) Then
+                ReDim Preserve astrFewRemainingItemNames(lngFewRemainingCounter)
+                astrFewRemainingItemNames(lngFewRemainingCounter) = aCurrentStockItems(i)
+                lngFewRemainingCounter = lngFewRemainingCounter + 1
+            ElseIf dictPreviousStockItems.Item(currentStockItem.Name).Quantity <> currentStockItem.Quantity Then
+                ReDim Preserve astrFewRemainingItemNames(lngFewRemainingCounter)
+                astrFewRemainingItemNames(lngFewRemainingCounter) = aCurrentStockItems(i)
+                lngFewRemainingCounter = lngFewRemainingCounter + 1
             End If
         End If
-
     Next i
+
+    'Get FROZEN items
+    Dim intChangePeriodDays As Integer
+    'Deprecated: User chooses FROZEN threshold
+    'intChangePeriodDays = AskUserForNumber("Checking for items that haven't been moving. Enter number of months to check:", "2")
+    intChangePeriodDays = 45
+    Dim currentDate As Date: currentDate = CDate(STR_CURRENT_DATE)
+    'cstrFrozenItemNames = GetFrozenItemNames(intChangePeriodDays, dictCurrentStockItems, CDate(STR_CURRENT_DATE))
     
-    ' Write the report
-    Workbooks.Add
+    Dim cstrFrozenItemNames() As String
+    Dim lngFrozenItemsCounter As Long: lngFrozenItemsCounter = 0
+    Dim boolFoundFrozen As Boolean: boolFoundFrozen = False
+
+    'Load previous information in memory
+    CheckAndOpenFile (STR_CHANGES_TRACKING_FILE_PATH)
+    Dim dictLastStockItems As New Dictionary
+    Set rngCurrentCell = ActiveSheet.Range("A1")
+    Do While Not IsEmpty(rngCurrentCell.value)
+        Set currentStockItem = New StockItem
+        currentStockItem.Name = rngCurrentCell.value
+        currentStockItem.LatestQuantityChangeDate = CDate(rngCurrentCell.Offset(0, 1).value)
+        currentStockItem.LatestPriceChangeDate = CDate(rngCurrentCell.Offset(0, 2).value)
+        currentStockItem.Quantity = rngCurrentCell.Offset(0, 3).value
+        currentStockItem.Price = rngCurrentCell.Offset(0, 4).value
+        dictLastStockItems.Add Key:=currentStockItem.Name, Item:=currentStockItem
+        Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
+    Loop
+
+    'Loop through CURRENT items
+    'Check if changes haven't been made for over threshold time
+    Dim currentStockItems() As String: currentStockItems = dictCurrentStockItems.Keys()
+    Dim lastStockItem As StockItem
+    For i = LBound(currentStockItems) To UBound(currentStockItems)
+        Set currentStockItem = dictCurrentStockItems.Item(currentStockItems(i))
+        If dictLastStockItems.Exists(currentStockItem.Name) Then
+            'Item has a last entry, FROZEN if Price AND Quantity are THE SAME and Change DATE DIFFERENCE >= intChangePeriodDays
+            Set lastStockItem = dictLastStockItems.Item(currentStockItem.Name)
+            If currentStockItem.Name = "AB in Blue (M) (EDT 100)" Then
+                MsgBox (DateDiff("d", lastStockItem.LatestPriceChangeDate, currentDate))
+            End If
+            If lastStockItem.Price = currentStockItem.Price And lastStockItem.Quantity = currentStockItem.Quantity And _
+                DateDiff("d", lastStockItem.LatestPriceChangeDate, currentDate) >= intChangePeriodDays And _
+                DateDiff("d", lastStockItem.LatestQuantityChangeDate, currentDate) >= intChangePeriodDays Then
+                    ReDim Preserve cstrFrozenItemNames(lngFrozenItemsCounter)
+                    cstrFrozenItemNames(lngFrozenItemsCounter) = currentStockItem.Name
+                    lngFrozenItemsCounter = lngFrozenItemsCounter + 1
+                    boolFoundFrozen = True
+                    
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = currentDate
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = currentDate
+            Else
+                If currentStockItem.Quantity <> lastStockItem.Quantity Then
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = currentDate
+                Else
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = lastStockItem.LatestQuantityChangeDate
+                End If
+                
+                If currentStockItem.Price <> lastStockItem.Price Then
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = currentDate
+                Else
+                    dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = lastStockItem.LatestPriceChangeDate
+                End If
+            End If
+        Else
+            'Item not in the last tracking file
+            dictCurrentStockItems.Item(currentStockItem.Name).LatestPriceChangeDate = currentDate
+            dictCurrentStockItems.Item(currentStockItem.Name).LatestQuantityChangeDate = currentDate
+        End If
+    Next i
+
+    'Rewrite the TRACKING file with updated information
+    ActiveSheet.Cells.Clear
+    Const STR_DATE_FORMAT As String = "MM/dd/yyyy"
+    Set rngCurrentCell = ActiveSheet.Range("A1")
+    For i = LBound(currentStockItems) To UBound(currentStockItems)
+        Set currentStockItem = dictCurrentStockItems.Item(currentStockItems(i))
+        rngCurrentCell.value = currentStockItem.Name
+        rngCurrentCell.Offset(0, 1).value = Format(currentStockItem.LatestQuantityChangeDate, STR_DATE_FORMAT)
+        rngCurrentCell.Offset(0, 2).value = Format(currentStockItem.LatestPriceChangeDate, STR_DATE_FORMAT)
+        rngCurrentCell.Offset(0, 3).value = currentStockItem.Quantity
+        rngCurrentCell.Offset(0, 4).value = currentStockItem.Price
+        Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
+    Next i
+
+    'Free resources
+    Set dictLastStockItems = Nothing
+
+    Application.DisplayAlerts = False
+    ActiveWorkbook.SaveAs (STR_CHANGES_TRACKING_FILE_PATH)
+    ActiveWorkbook.Close
+    Application.DisplayAlerts = True
+    '============================================================== REPORT FORMATTING ==============================================================
+    Dim reportWb As Workbook: Set reportWb = Workbooks.Add
     Cells.Font.Name = "Arial"
-    
-    ' Write headers
+
+    'Write headers
     Cells(1, 1).value = "Robin GT"
     Cells(2, 1).value = "Stock Analysis"
     Cells(1, 3).value = "Dating from:"
     Range("C2:D2").Cells.Merge
     Range("C2:D2").HorizontalAlignment = xlLeft
-    Cells(2, 3).value = LastDate & " to " & CurrentDate
-    
+    Cells(2, 3).value = STR_PREVIOUS_DATE & " to " & STR_CURRENT_DATE
+
     Cells(4, 1).value = "New Item"
     Cells(4, 3).value = "Std. Cost in Dhs"
     Cells(4, 2).value = "Stock Quantity (Pcs)"
@@ -172,175 +387,191 @@ Sub DayReport()
     Range("A1:D4").Font.Bold = True
     Range("A4:D4").HorizontalAlignment = xlCenter
     
-    Dim StartRow As Integer
-    Dim CurrRow As Integer
-    StartRow = 4
-    CurrRow = StartRow
+    Dim intStartRow As Integer: intStartRow = 4
+    Dim intCurrentRow As Integer: intCurrentRow = intStartRow
     
-    ' Write the new items if any
-    If NewCounter > 0 Then
-        For j = 0 To NewCounter - 1
-            CurrRow = CurrRow + 1
-            Cells(CurrRow, 1).value = NewItems(j)
-            Cells(CurrRow, 2).value = CurrQuantity.Item(NewItems(j))
-            Cells(CurrRow, 3).value = CurrCost.Item(NewItems(j))
-            Cells(CurrRow, 4).value = CurrPrice.Item(NewItems(j))
+    'Write the new items if any
+    If lngNewItemsCounter > 0 Then
+        For j = LBound(astrNewItemNames) To UBound(astrNewItemNames)
+            Set currentStockItem = dictCurrentStockItems.Item(astrNewItemNames(j))
+            intCurrentRow = intCurrentRow + 1
+            Cells(intCurrentRow, 1).value = currentStockItem.Name
+            Cells(intCurrentRow, 2).value = currentStockItem.Quantity
+            Cells(intCurrentRow, 3).value = currentStockItem.Cost
+            Cells(intCurrentRow, 4).value = currentStockItem.Price
         Next j
     Else
-        NewCounter = 1
-        CurrRow = CurrRow + 1
-        Cells(CurrRow, 1).value = "No new items"
+        lngNewItemsCounter = 1
+        intCurrentRow = intCurrentRow + 1
+        Cells(intCurrentRow, 1).value = "No new items"
     End If
 
-    With Range("C" & (StartRow + 1) & ":D" & CurrRow)
+    With Range("C" & (intStartRow + 1) & ":D" & intCurrentRow)
         .NumberFormat = "0.00;(-)  0.00   "
         .HorizontalAlignment = xlCenter
     End With
 
-    With Range("B" & (StartRow + 1) & ":B" & CurrRow)
+    With Range("B" & (intStartRow + 1) & ":B" & intCurrentRow)
         .NumberFormat = "0;(-)  0   "
         .HorizontalAlignment = xlCenter
     End With
     
-    MakeThinBorders ("A" & StartRow & ":D" & CurrRow)
+    MakeThinBorders ("A" & intStartRow & ":D" & intCurrentRow)
     
-    CurrRow = CurrRow + 2
-    Cells(CurrRow, 1).value = "Sold Item"
-    Cells(CurrRow, 2).value = "Quantity (Pcs)"
-    Cells(CurrRow, 3).value = "Notes"
+    intCurrentRow = intCurrentRow + 2
+    Cells(intCurrentRow, 1).value = "Sold Item"
+    Cells(intCurrentRow, 2).value = "Quantity (Pcs)"
+    Cells(intCurrentRow, 3).value = "Notes"
     
-    With Range(Cells(CurrRow, 1), Cells(CurrRow, 3))
+    With Range(Cells(intCurrentRow, 1), Cells(intCurrentRow, 3))
         .Font.Bold = True
         .HorizontalAlignment = xlCenter
     End With
     
-    StartRow = CurrRow
+    intStartRow = intCurrentRow
     
-    ' Write the Sold items if any
-    If SoldCounter > 0 Then
-        For j = 0 To (SoldCounter - 1)
-            CurrRow = CurrRow + 1
-            Cells(CurrRow, 1).value = Sold(j)
-            Cells(CurrRow, 2).value = 0
+    ' Write the sold items if any
+    If lngSoldItemsCounter > 0 Then
+        For j = LBound(astrSoldItemNames) To UBound(astrSoldItemNames)
+            intCurrentRow = intCurrentRow + 1
+            Cells(intCurrentRow, 1).value = astrSoldItemNames(j)
+            Cells(intCurrentRow, 2).value = 0
         Next j
     Else
-        SoldCounter = 1
-        CurrRow = CurrRow + 1
-        Cells(CurrRow, 1).value = "None items sold out"
+        lngSoldItemsCounter = 1
+        intCurrentRow = intCurrentRow + 1
+        Cells(intCurrentRow, 1).value = "None items sold out"
     End If
     
-    With Range("B" & (StartRow + 1) & ":B" & CurrRow)
+    With Range("B" & (intStartRow + 1) & ":B" & intCurrentRow)
         .NumberFormat = "0;(-)  0   "
         .HorizontalAlignment = xlCenter
     End With
     
-    MakeThinBorders ("A" & StartRow & ":C" & CurrRow)
-    CurrRow = CurrRow + 2
+    MakeThinBorders ("A" & intStartRow & ":C" & intCurrentRow)
+    intCurrentRow = intCurrentRow + 2
     
-    Cells(CurrRow, 1).value = "Less than " & FewRemainingThreshold
-    Cells(CurrRow, 2).value = "Quantity (Pcs)"
-    Cells(CurrRow, 3).value = "Notes"
+    Cells(intCurrentRow, 1).value = "Less than " & FewRemainingThreshold
+    Cells(intCurrentRow, 2).value = "Quantity (Pcs)"
+    Cells(intCurrentRow, 3).value = "Notes"
     
-    With Range(Cells(CurrRow, 1), Cells(CurrRow, 3))
+    With Range(Cells(intCurrentRow, 1), Cells(intCurrentRow, 3))
         .Font.Bold = True
         .HorizontalAlignment = xlCenter
     End With
     
-    StartRow = CurrRow
+    intStartRow = intCurrentRow
     
-    ' Write the Few Remaining Left items if any
-    If FewRemainingCounter > 0 Then
-        For j = 0 To (FewRemainingCounter - 1)
-            CurrRow = CurrRow + 1
-            Cells(CurrRow, 1).value = FewRemainingArray(j)
-            Cells(CurrRow, 2).value = CurrQuantity.Item(FewRemainingArray(j))
+    'Write the Few Remaining Left items if any
+    If lngFewRemainingCounter > 0 Then
+        For j = LBound(astrFewRemainingItemNames) To UBound(astrFewRemainingItemNames)
+            Set currentStockItem = dictCurrentStockItems.Item(astrFewRemainingItemNames(j))
+            intCurrentRow = intCurrentRow + 1
+            Cells(intCurrentRow, 1).value = currentStockItem.Name
+            Cells(intCurrentRow, 2).value = currentStockItem.Quantity
         Next j
     Else
-        FewRemainingCounter = 1
-        CurrRow = CurrRow + 1
-        Cells(CurrRow, 1).value = "No items with quantity of " & FewRemainingThreshold
+        lngFewRemainingCounter = 1
+        intCurrentRow = intCurrentRow + 1
+        Cells(intCurrentRow, 1).value = "None with quantity less than or equal to " & FewRemainingThreshold
     End If
     
-    With Range("B" & (StartRow + 1) & ":B" & CurrRow)
+    With Range("B" & (intStartRow + 1) & ":B" & intCurrentRow)
         .NumberFormat = "0;(-)  0   "
         .HorizontalAlignment = xlCenter
     End With
     
-    MakeThinBorders ("A" & StartRow & ":C" & CurrRow)
-    CurrRow = CurrRow + 2
-    StartRow = CurrRow
+    MakeThinBorders ("A" & intStartRow & ":C" & intCurrentRow)
+    intCurrentRow = intCurrentRow + 2
+    intStartRow = intCurrentRow
     
-    Cells(CurrRow, 1).value = "Changed Price Item"
-    Cells(CurrRow, 2).value = "Last Price in Dhs"
-    Cells(CurrRow, 3).value = "New Price in Dhs"
-    Cells(CurrRow, 4).value = "Notes"
-    With Range(Cells(CurrRow, 1), Cells(CurrRow, 4))
+    Cells(intCurrentRow, 1).value = "Changed Price Item"
+    Cells(intCurrentRow, 2).value = "Last Price in Dhs"
+    Cells(intCurrentRow, 3).value = "New Price in Dhs"
+    Cells(intCurrentRow, 4).value = "Notes"
+    With Range(Cells(intCurrentRow, 1), Cells(intCurrentRow, 4))
         .Font.Bold = True
         .HorizontalAlignment = xlCenter
     End With
     
-    ' Write the changed items if any
-    If ChangedCounter > 0 Then
-        For j = 0 To (ChangedCounter - 1)
-            CurrRow = CurrRow + 1
-            Cells(CurrRow, 1).value = Changed(j)
-            Cells(CurrRow, 2).value = PrevPrice.Item(Changed(j))
-            Cells(CurrRow, 3).value = CurrPrice.Item(Changed(j))
+    'Write the changed items if any
+    If lngChangedItemsCounter > 0 Then
+        For j = LBound(astrChangedItemNames) To UBound(astrChangedItemNames)
+            Set currentStockItem = dictCurrentStockItems.Item(astrChangedItemNames(j))
+            intCurrentRow = intCurrentRow + 1
+            Cells(intCurrentRow, 1).value = currentStockItem.Name
+            Cells(intCurrentRow, 2).value = dictPreviousStockItems.Item(currenStockItem.Name).Price
+            Cells(intCurrentRow, 3).value = currentStockItem.Price
         Next j
     Else
-        ChangedCounter = 1
-        CurrRow = CurrRow + 1
-        Cells(CurrRow, 1).value = "No items with changed prices"
+        lngChangedItemsCounter = 1
+        intCurrentRow = intCurrentRow + 1
+        Cells(intCurrentRow, 1).value = "No items with changed prices"
     End If
     
-    MakeThinBorders ("A" & StartRow & ":D" & CurrRow)
-    With Range("B" & (StartRow + 1) & ":C" & CurrRow)
+    MakeThinBorders ("A" & intStartRow & ":D" & intCurrentRow)
+    With Range("B" & (intStartRow + 1) & ":C" & intCurrentRow)
+        .NumberFormat = "0.00;(-)  0.00   "
+        .HorizontalAlignment = xlCenter
+    End With
+
+    'Write the FROZEN items if any
+    intCurrentRow = intCurrentRow + 2
+    intStartRow = intCurrentRow
+    
+    Cells(intCurrentRow, 1).value = "No Price And Quantity Change Items (" & intChangePeriodDays & " days)"
+    Cells(intCurrentRow, 2).value = "Cost in Dhs"
+    Cells(intCurrentRow, 3).value = "Price in Dhs"
+    Cells(intCurrentRow, 4).value = "Quantity (Pcs)"
+    
+    With Range(Cells(intCurrentRow, 1), Cells(intCurrentRow, 5))
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+    End With
+    If Not boolFoundFrozen Then
+        intCurrentRow = intCurrentRow + 1
+        Cells(intCurrentRow, 1).value = STR_NONE_FROZEN_MESSAGE
+    Else
+        For i = LBound(cstrFrozenItemNames) To UBound(cstrFrozenItemNames)
+            Set currentStockItem = dictCurrentStockItems.Item(CStr(cstrFrozenItemNames(i)))
+            intCurrentRow = intCurrentRow + 1
+            Cells(intCurrentRow, 1).value = currentStockItem.Name
+            Cells(intCurrentRow, 2).value = currentStockItem.Cost
+            Cells(intCurrentRow, 3).value = currentStockItem.Price
+            Cells(intCurrentRow, 4).value = currentStockItem.Quantity
+        Next i
+    End If
+    
+    MakeThinBorders ("A" & intStartRow & ":D" & intCurrentRow)
+    With Range("B" & (intStartRow + 1) & ":C" & intCurrentRow)
         .NumberFormat = "0.00;(-)  0.00   "
         .HorizontalAlignment = xlCenter
     End With
     
     ActiveSheet.Columns.AutoFit
     Columns(5).ColumnWidth = 17.5
-    GeneralPrintSetup ("A1:D" & (CurrRow + ChangedCounter))
+    GeneralPrintSetup ("A1:D" & (intCurrentRow + lngChangedItemsCounter))
     
     'Free the resources
-    Set CurrQuantity = Nothing
-    Set CurrCost = Nothing
-    Set CurrPrice = Nothing
-    Set PrevPrice = Nothing
-    Set PrevQuantity = Nothing
+    Set dictCurrentStockItems = Nothing
+    Set dictPreviousStockItems = Nothing
     
-    Dim SaveOption As Variant
-    SaveOption = MsgBox("Do you want to update previous stock information?", vbYesNo, "Continue?")
-    
-    If SaveOption = vbYes Then
-        Dim DateNow As String
-        DateNow = Format(Now, "MM/dd/yyyy hh mm")
+    Dim varSaveOption As Variant
+    varSaveOption = MsgBox("Do you want to update previous stock information?", vbYesNo, "Continue?")
+    If varSaveOption = vbYes Then
+        Dim strDateNow As String
+        strDateNow = Format(Now, "MM/dd/yyyy hh mm")
         Application.DisplayAlerts = False
-        ActiveWorkbook.SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Analysis.xlsx"
-        Workbooks("Last Stock Summary").SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Stock Summary Backup " & DateNow & ".xlsx"
-        Workbooks("Stock Summary Backup " & DateNow).Close
-        Workbooks(CurrentWb).SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Last Stock Summary.xlsx"
-        Workbooks.Open Path & "\" & CurrentWb
+        ActiveWorkbook.SaveAs STR_PREVIOUS_SUMMARY_FILE_PATH
+        Workbooks("Last Stock Summary").SaveAs "\\Robingt-hp\perfume\Stock Analysis (Timur)\Stock Exports (Auto-Saved)\Stock Summary Backup " & strDateNow & ".xlsx"
+        Workbooks("Stock Summary Backup " & strDateNow).Close
+        Workbooks(WB_CURRENT).SaveAs STR_PREVIOUS_SUMMARY_FILE_PATH
+        Workbooks.Open STR_CURRENT_PATH & "\" & WB_CURRENT
         Application.DisplayAlerts = True
     End If
     
-    Workbooks("Last Stock Summary").Close
+    Workbooks("Last Stock Summary.xlsx").Close
     Windows.Arrange ArrangeStyle:=xlVertical
-    
 End Sub
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
