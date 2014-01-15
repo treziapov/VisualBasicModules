@@ -14,7 +14,9 @@ End Function
 'Checks for items that haven't CHANGED PRICE and QUANTITY for a user-defined time period (in months)
 'Tracking File Format:
 '   1.Item Name     2. Last Quantity Change Date    3. Last Price Change Date   4. Last Quantity    5. Last Price
-Public Function GetFrozenItemNames(intChangePeriodMonths As Integer, ByRef dictCurrentQuantity As Dictionary, ByRef dictCurrentPrice As Dictionary, currentDate As Date) As Collection
+Public Function GetFrozenItemNames(intChangePeriodMonths As Integer, ByRef dictCurrentQuantity As Dictionary, 
+    ByRef dictCurrentPrice As Dictionary, currentDate As Date) As Collection
+
     Dim cstrFrozenItemsNames As New Collection()
     Dim lngFrozenItemsCounter As Long: lngFrozenItemsCounter = 0
     Const DATE_NOW As Date: DATE_NOW = currentDate
@@ -24,7 +26,7 @@ Public Function GetFrozenItemNames(intChangePeriodMonths As Integer, ByRef dictC
     Dim dictLastPriceChangeDates As New Dictionary, dictLastQuantityChangeDates As New Dictionary, _
         dictLastPrices As New Dictionary, dictLastQuantities As New Dictionary, _
         dictNewPriceChangeDates As New Dictionary, dictNewQuantityChangeDates As New Dictionary
-    Dim rngCurrentCell As Range: Set rngCurrentCell = ActiveSheet.Range("A1")
+    Dim rngCurrentCell As Range: Set rngCurrentCell = ActiveSheet.Range("A1") 
     Do While Not IsEmpty(rngCurrentCell.value)
         dictLastPriceChangeDates.Add    Key:= rngCurrentCell.value Item:= CDate(rngCurrentCell.Offset(0, 1))
         dictLastQuantityChangeDates.Add Key:= rngCurrentCell.value Item:= CDate(rngCurrentCell.Offset(0, 2))
@@ -51,7 +53,7 @@ Public Function GetFrozenItemNames(intChangePeriodMonths As Integer, ByRef dictC
             ElseIf
                 If dictCurrentPrice.Item(strCurrentItem).value <> dictPreviousPrice.Item(strCurrentItem).value Then
                     dictNewPriceChangesDates.Add Key:= strCurrentItem Value:= DATE_NOW
-                Else
+                Elseâ 
                     dictNewPriceChangesDates.Add Key:= strCurrentItem Value:= dictLastPriceChangeDates.Item(strCurrentItem).value
                 End If
                 If dictCurrentPrice.Item(strCurrentItem).value <> dictPreviousPrice.Item(strCurrentItem).value Then
