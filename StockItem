@@ -1,0 +1,7 @@
+Option Explicit
+Public Name As String
+Public Cost As Double
+Public Price As Double
+Public Quantity As Integer
+Public LatestPriceChangeDate As Date
+Public LatestQuantityChangeDate As Date
