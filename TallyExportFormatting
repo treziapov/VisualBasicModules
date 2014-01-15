@@ -1,5 +1,33 @@
-Function AedOrUsdPrompt() As Variant
-    AedOrUsdPrompt = MsgBox("")
+'Constants and Settings
+Const INT_ARRAY_SIZE As Integer = 10000
+Const PATH_PREVIOUS_PRICE_LISTS As String = "\\Robingt-hp\perfume\Robin price list"
+
+Function GetUserFile(initialLocation As String) As String
+    Dim fd As Office.FileDialog
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+
+    With fd
+        .AllowMultiSelect = False
+        
+        'Move to the given initial location
+        .InitialFileName = initialLocation
+        
+        ' Set the title of the dialog box.
+        .Title = "Please select the file"
+        
+        ' Clear out the current filters, and add our own.
+        .Filters.Clear
+        .Filters.Add "All Files", "*.*"
+        
+        ' Show the dialog box. If the .Show method returns True, the
+        ' user picked at least one file. If the .Show method returns
+        ' False, the user clicked Cancel.
+        If .Show = True Then
+            GetUserFile = .SelectedItems(1) 'replace txtFileName with your textbox
+        Else
+            GetUserFile = "None"
+        End If
+    End With
 End Function
 
 Sub FormatTallyExport()
@@ -371,6 +399,34 @@ Sub PriceListFormatting()
     Dim Size As Integer, Count As Integer
     Dim CurrItem As Range
 
+    'Load the previous price list file for detecting NEW items
+    Dim dictPreviousItemNames As New Dictionary
+    Dim intNameColumn As Integer: intNameColumn = 1
+    Dim intPriceColumn As Integer: intPriceColumn = 2
+    Dim intStartingRow As Integer: intStartingRow = 23
+    Dim intNewArrivalColumn As Integer: intNewArrivalColumn = 5
+    Dim strNewArrivalLabel As String: strNewArrivalLabel = "New Arrival"
+    
+    Dim strFilePath As String: strFilePath = GetUserFile(PATH_PREVIOUS_PRICE_LISTS)
+    If strFilePath = "None" Or Dir(strFilePath) = "" Then
+        MsgBox ("No existing file was chosen for comparison")
+    Else
+        Workbooks.Open Filename:=strFilePath
+        If ActiveSheet.Name = "Robin Price List" Then
+            'Loop through all the item names and store them
+            Dim rngCurrentCell As Range: Set rngCurrentCell = Cells(intStartingRow, intNameColumn)
+            Do While Not IsEmpty(rngCurrentCell.value)
+                If Not IsEmpty(rngCurrentCell.Offset(0, 1).value) Then
+                    dictPreviousItemNames.Add Key:=rngCurrentCell.value, Item:=None
+                End If
+                Set rngCurrentCell = rngCurrentCell.Offset(1, 0)
+            Loop
+        Else
+            MsgBox ("Opened non Price List comparison file")
+        End If
+        ActiveWorkbook.Close
+    End If
+
     '   Open Robin Price List Template
     Workbooks.Add Template:="\\Robingt-hp\perfume\Excel Templates (Don't change)\Robin Price List Template.xltx"
     Dim WBName As String
@@ -378,7 +434,7 @@ Sub PriceListFormatting()
     Workbooks("StkSum.xls").Activate
     
     '   Copy the necessary columns
-    For Count = 0 To 5000
+    For Count = 0 To INT_ARRAY_SIZE
         Set CurrItem = ActiveSheet.Cells(7 + Count, 1)
         If CurrItem.value = "Grand Total" Then
             Size = Count
@@ -386,7 +442,7 @@ Sub PriceListFormatting()
         End If
     Next Count
     
-    If Count >= 5000 Then
+    If Count >= INT_ARRAY_SIZE Then
         MsgBox "Error. Didn't find Grand Total"
         Exit Sub
     End If
@@ -417,7 +473,7 @@ Sub PriceListFormatting()
     StringDate = Mid(FileDate, 5)
     FileDate = Format(StringDate, "dd-mm-yyyy")
     
-    '   Copy Name and AED Price Columns to Template
+    'Copy Name and AED Price Columns to Template
     With ActiveSheet.Range("A7:B" & (Size + 7 - 1))
         .VerticalAlignment = xlBottom
         .Font.Italic = False
@@ -431,8 +487,9 @@ Sub PriceListFormatting()
         .VerticalAlignment = xlBottom
         .Copy Destination:=Workbooks(WBName).Worksheets("ROBIN PRICE LIST").Range("B22")
     End With
-    '   Bolden and Add USD Price to Template Workbook
+    'Bolden and Add USD Price to Template Workbook
     Workbooks(WBName).Activate
+    Dim strCurrentItemName As String
     For Count = 22 To (Size + 22 - 1)
         Set CurrItem = ActiveSheet.Cells(Count, 1)
         With CurrItem
@@ -441,7 +498,18 @@ Sub PriceListFormatting()
                 .Font.Italic = True
                 .HorizontalAlignment = xlCenter
             Else
+                'It's an item and not a company name, add USD price
                 ActiveSheet.Cells(Count, 3) = ActiveSheet.Cells(Count, 2) / 3.667
+                
+                'Label if new
+                If Not dictPreviousItemNames.Exists(CurrItem.value) And dictPreviousItemNames.Count > 0 Then
+                    With CurrItem.Offset(0, 4)
+                        .value = strNewArrivalLabel
+                        .Font.Color = vbRed
+                        .Font.Bold = True
+                        .HorizontalAlignment = xlCenter
+                    End With
+                End If
             End If
         End With
     Next Count
@@ -461,7 +529,6 @@ Sub PriceListFormatting()
     End If
     
 End Sub
-
 
 ' Used for transferring items between Godowns
 Sub TransferFormatting()
@@ -712,7 +779,3 @@ Sub TransferFormatting()
     GeneralPrintSetup ("A1:F" & CurrRange.Row + 5)
     
 End Sub
-
-
-
-
