@@ -313,9 +313,6 @@ Sub CompareStockSummaries()
         If dictLastStockItems.Exists(currentStockItem.Name) Then
             'Item has a last entry, FROZEN if Price AND Quantity are THE SAME and Change DATE DIFFERENCE >= intChangePeriodDays
             Set lastStockItem = dictLastStockItems.Item(currentStockItem.Name)
-            If currentStockItem.Name = "AB in Blue (M) (EDT 100)" Then
-                MsgBox (DateDiff("d", lastStockItem.LatestPriceChangeDate, currentDate))
-            End If
             If lastStockItem.Price = currentStockItem.Price And lastStockItem.Quantity = currentStockItem.Quantity And _
                 DateDiff("d", lastStockItem.LatestPriceChangeDate, currentDate) >= intChangePeriodDays And _
                 DateDiff("d", lastStockItem.LatestQuantityChangeDate, currentDate) >= intChangePeriodDays Then
@@ -500,7 +497,7 @@ Sub CompareStockSummaries()
             Set currentStockItem = dictCurrentStockItems.Item(astrChangedItemNames(j))
             intCurrentRow = intCurrentRow + 1
             Cells(intCurrentRow, 1).value = currentStockItem.Name
-            Cells(intCurrentRow, 2).value = dictPreviousStockItems.Item(currenStockItem.Name).Price
+            Cells(intCurrentRow, 2).value = dictPreviousStockItems.Item(currentStockItem.Name).Price
             Cells(intCurrentRow, 3).value = currentStockItem.Price
         Next j
     Else
@@ -547,6 +544,7 @@ Sub CompareStockSummaries()
         .NumberFormat = "0.00;(-)  0.00   "
         .HorizontalAlignment = xlCenter
     End With
+    Range("D" & intStartRow & ":D" & intCurrentRow).HorizontalAlignment = xlCenter
     
     ActiveSheet.Columns.AutoFit
     Columns(5).ColumnWidth = 17.5
@@ -573,5 +571,7 @@ Sub CompareStockSummaries()
     Workbooks("Last Stock Summary.xlsx").Close
     Windows.Arrange ArrangeStyle:=xlVertical
 End Sub
+
+
 
 
